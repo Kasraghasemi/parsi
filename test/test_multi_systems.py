@@ -39,5 +39,6 @@ omega,theta = parsi.decentralized_rci(sub_sys)
 
 #pp.visualize(omega)
 sub_sys[0].X.color='red'
-pp.visualize([sub_sys[0].X,omega[0]])
+print(omega[0].G)
+pp.visualize([omega[0]])
 plt.show()

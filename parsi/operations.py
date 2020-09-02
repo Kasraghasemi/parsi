@@ -148,6 +148,7 @@ def decentralized_rci(sys,method='centralized',initial_guess='nominal'):
     """
     Given a set of coupled linear sub-systems
     """
+    from copy import copy,deepcopy
     for i in sys:
         i.E=False               #Setting all E=False
     order_max=10
@@ -174,10 +175,9 @@ def decentralized_rci(sys,method='centralized',initial_guess='nominal'):
         disturb=[]
         for i in range(number_of_subsys):
             disturb.append(sys[i].W)
-        W_i=disturb
-        print('W_iiiiiiiiiiii',W_i[0].G)
+        W_i=deepcopy(disturb)
 
-        for order in np.arange(6, order_max, 1/max(n)):
+        for order in np.arange(1, order_max, 1/max(n)):
             
             prog= MP.MathematicalProgram()
             
@@ -222,12 +222,15 @@ def decentralized_rci(sys,method='centralized',initial_guess='nominal'):
                 M_x=[result.GetSolution(var[i]['M_x']) for i in range(number_of_subsys)]
                 omega=[pp.zonotope(G=result.GetSolution(var[i]['T']),x=T_x[i]) for i in range(number_of_subsys)]
                 theta=[pp.zonotope(G=result.GetSolution(var[i]['M']),x=M_x[i]) for i in range(number_of_subsys)]
+
+                for i in range(number_of_subsys):
+                    sys[i].W=W_i[i]
+
                 return omega,theta
             else:
                 del prog
-                print('W_i',W_i[0].G)
-                disturb=W_i
-                print("I AM HEEEEEERRRRR")
+                disturb=deepcopy(W_i)
+                #print('W_i2',W_i[0].G.shape)
                 continue    
         print("Infeasible:We couldn't find a set of decentralized rci sets. You can change the order_max and try again.")
         return None,None
