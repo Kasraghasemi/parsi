@@ -144,7 +144,7 @@ def sub_systems(system,partition_A,partition_B):
     return sys
 
 
-def decentralized_rci(sys,method='centralized',initial_guess='nominal'):
+def decentralized_rci(sys,method='centralized',initial_guess='nominal',size='min'):
     """
     Given a set of coupled linear sub-systems
     """
@@ -213,6 +213,12 @@ def decentralized_rci(sys,method='centralized',initial_guess='nominal'):
             #Disturbance
             [prog.AddLinearConstraint(np.equal(d_aug_x[i], disturb[i].x,dtype='object').flatten()) for i in range(number_of_subsys)]
             [prog.AddLinearConstraint(np.equal(d_aug[i], disturb[i].G,dtype='object').flatten()) for i in range(number_of_subsys)]
+
+            #Objective function
+            if size=='min':
+                [prog.AddLinearCost(np.ones(len(alpha_x[i])), 0, alpha_x[i]) for i in range(number_of_subsys)]
+            elif size=='max':
+                [prog.AddLinearCost(-1 *np.ones(len(alpha_x[i])), 0, alpha_x[i]) for i in range(number_of_subsys)]
 
             #Result
             result=gurobi_solver.Solve(prog)    
