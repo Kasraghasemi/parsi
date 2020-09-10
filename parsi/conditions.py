@@ -3,10 +3,18 @@
 """
 import numpy as np
 try:
+    from gurobipy import *
+except:
+    print('gurobi is not installed correctly') 
+try:
     import pypolycontain as pp
 except:
     print('Error: pypolycontain package is not installed correctly') 
 
+try:
+    import parsi
+except:
+    print('Error: parsi package is not installed correctly') 
 
 def rci_constraints(program,system,T_order=3):
     """
@@ -43,31 +51,27 @@ def rci_constraints(program,system,T_order=3):
     program.AddLinearConstraint(np.equal(left_side,right_side,dtype='object').flatten())             #[AT+BM,W]==[E,T]
 
     if flag==1:
-        _,_,beta = pp.subset(program, pp.zonotope(G=e,x=np.zeros(e.shape[0])) , pp.zonotope(G=system.W.G,x=np.zeros(system.W.G.shape[0])) , alpha='scalar')             #Z(0,E) \subset Z(0,beta*W)
+        _,_,beta = pp.zonotope_subset(program, pp.zonotope(G=e,x=np.zeros(e.shape[0])) , pp.zonotope(G=system.W.G,x=np.zeros(system.W.G.shape[0])) , alpha='scalar')             #Z(0,E) \subset Z(0,beta*W)
         program.AddBoundingBoxConstraint(0,0.999,beta)              #CHECK IT, I NEED 0<=beta<1
         # program.AddLinearConstraint(beta < 1)
         # program.AddLinearConstraint(beta >= 0)
         program.AddLinearConstraint(np.equal(T_x, np.zeros(T.shape[0]),dtype='object').flatten())
         program.AddLinearConstraint(np.equal(M_x, np.zeros(M.shape[0]),dtype='object').flatten())
         if system.X!=None:
-            _,_,beta1=pp.subset(program, pp.zonotope(G=T,x=np.zeros(T.shape[0])) , system.X , alpha='scalar' )
+            _,_,beta1=pp.zonotope_subset(program, pp.zonotope(G=T,x=np.zeros(T.shape[0])) , system.X , alpha='scalar' )
             program.AddLinearConstraint(np.equal(beta1,(1-beta),dtype='object'))
         if system.U!=None:
-            _,_,beta2=pp.subset(program, pp.zonotope(G=M,x=np.zeros(M.shape[0])) , system.U , alpha='scalar' )
+            _,_,beta2=pp.zonotope_subset(program, pp.zonotope(G=M,x=np.zeros(M.shape[0])) , system.U , alpha='scalar' )
             program.AddLinearConstraint(np.equal(beta2,(1-beta),dtype='object'))
     elif flag==0:
         if E==True:
-            pp.subset(program, pp.zonotope(G=e,x=np.zeros(e.shape[0])) , pp.zonotope(G=beta *system.W.G,x=np.zeros(system.W.G.shape[0])) )
+            pp.zonotope_subset(program, pp.zonotope(G=e,x=np.zeros(e.shape[0])) , pp.zonotope(G=beta *system.W.G,x=np.zeros(system.W.G.shape[0])) )
         if system.X!=None:
-            pp.subset(program, pp.zonotope(G=T/(1-beta),x=T_x) , system.X )
+            pp.zonotope_subset(program, pp.zonotope(G=T/(1-beta),x=T_x) , system.X )
         if system.U!=None:
-            pp.subset(program, pp.zonotope(G=M/(1-beta),x=M_x) , system.U )
+            pp.zonotope_subset(program, pp.zonotope(G=M/(1-beta),x=M_x) , system.U )
         center=np.equal( np.dot(system.A , T_x) + np.dot(system.B , M_x) + system.W.x , T_x ,dtype='object').flatten()
         program.AddLinearConstraint(center)               #A*x_bar+ B*u_bar +w_bar==x_bar       #IT WILL MAKE PROBLEM WHEN IT BECOMES TRUE!
-
-    #print('cccccccccccenter',center)
-    #print('ceeeeeeeeeenter',center==True)
-    #center=np.delete(center , center==True)
     
     output={
         'T':T,
@@ -111,9 +115,9 @@ def viable_constraints(program,system,T_order=3,algorithm='slow'):
 
     #Implementing Hard Constraints over control input and state space
     if system.X!=None:
-        [pp.subset(program, pp.zonotope(G=T[i],x=T_x[i]) , system.X[i] ) for i in range(number_of_steps)]
+        [pp.zonotope_subset(program, pp.zonotope(G=T[i],x=T_x[i]) , system.X[i] ) for i in range(number_of_steps)]
     if system.U!=None:
-        [pp.subset(program, pp.zonotope(G=M[i],x=M_x[i]) , system.U[i] ) for i in range(number_of_steps-1)]
+        [pp.zonotope_subset(program, pp.zonotope(G=M[i],x=M_x[i]) , system.U[i] ) for i in range(number_of_steps-1)]
     
     #Constraints for the centers
     center=[np.equal( np.dot(system.A[i] , T_x[i]) + np.dot(system.B[i] , M_x[i]) + system.W[i].x , T_x[i+1] ,dtype='object').flatten() for i in range(number_of_steps-1)]
@@ -152,3 +156,75 @@ def mpc_constraints(program,system,horizon=1,hard_constraints=True):
                 _=[pp.be_in_set(program,u[:,i],system.U) for i in range(horizon)]
 
         return x,u
+
+
+def rci_decentralized_constraints_gurobi(model,list_system,T_order=3,initial_guess='nominal'):
+    """
+    """
+
+    sys_number = len(list_system)
+    n=[list_system[i].A.shape[0] for i in range(sys_number)]
+    m=[list_system[i].B.shape[1] for i in range(sys_number)]
+    k = [round(n[i]*T_order) for i in range(sys_number)] 
+
+    # Initilizing the paramterize set
+    if any([sys.omega==None for sys in list_system]) and any([sys.theta==None for sys in list_system]) :
+        print('++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+        if initial_guess=='nominal':
+            X_i,U_i=[],[]
+            for i in range(sys_number):
+                omega,theta = list_system[i].rci(order_max=10,size='min',obj='include_center')
+                X_i.append(omega)
+                U_i.append(theta)
+    else:
+        X_i=[sys.omega for sys in list_system]
+        U_i=[sys.theta for sys in list_system]
+
+    # Adding Variables
+
+    T= [ np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(n[sys])] ) for sys in range(sys_number)]
+    M= [ np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(m[sys])] ) for sys in range(sys_number)]
+
+    xbar=[ np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(n[sys])]) for sys in range(sys_number)]
+    ubar=[ np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(m[sys])]) for sys in range(sys_number)]
+    
+    for sys in range(sys_number):
+        # Adding hard constraints over state and control input spaces
+        if list_system[sys].U != None:
+            pp.zonotope_subset(model, pp.zonotope(x=np.array(ubar[sys]).T,G= M[sys]) , list_system[sys].U ,solver='gurobi')
+        if list_system[sys].X != None:
+            pp.zonotope_subset(model, pp.zonotope(x=np.array(xbar[sys]).T,G=T[sys]) , list_system[sys].X ,solver='gurobi' )
+
+    # Adding Correctness constraints
+    alpha_u=[ pp.zonotope_subset(model, pp.zonotope(x=np.array(ubar[sys]).T,G= M[sys]) , U_i[sys] ,alpha='vector',solver='gurobi')[2] for sys in range(sys_number)]
+    [model.addConstrs((alpha_u[sys][i] >= 0 for i in range(len(alpha_u[sys]))) ) for sys in range(sys_number)]
+    alpha_x=[ pp.zonotope_subset(model, pp.zonotope(x=np.array(xbar[sys]).T,G=T[sys]) , X_i[sys] ,alpha='vector',solver='gurobi' )[2] for sys in range(sys_number)]
+    [model.addConstrs((alpha_x[sys][i] >= 0 for i in range(len(alpha_x[sys]))) ) for sys in range(sys_number)]
+
+    model.update()
+
+    # Computing the disturbance set
+    disturb=[]
+    for i in range(sys_number):
+        disturb.append(list_system[i].W)
+    for i in range(sys_number):
+        for j in range(sys_number):
+            if j in list_system[i].A_ij:
+                w=pp.zonotope(G= np.dot(np.dot( list_system[i].A_ij[j], X_i[j].G), np.diag(alpha_x[j]) ) , x= np.dot( list_system[i].A_ij[j], X_i[j].x))
+                disturb[i] = disturb[i]+ w
+            if j in list_system[i].B_ij:
+                w=pp.zonotope(G= np.dot(np.dot( list_system[i].B_ij[j], U_i[j].G), np.diag(alpha_u[j]) ) , x= np.dot( list_system[i].B_ij[j], U_i[j].x))
+                disturb[i] = disturb[i]+ w
+
+    # Adding main rci constraints: [AT+BM,W]=[0,T] and A x_bar + B u_bar + d_bar = x_bar
+    for sys in range(sys_number):
+
+        left_side = np.concatenate (( np.dot(list_system[sys].A,T[sys]) + np.dot(list_system[sys].B,M[sys])  , disturb[sys].G) ,axis=1)
+        right_side = np.concatenate(   ( np.zeros(( list_system[sys].A.shape[0],disturb[sys].G.shape[1] )), T[sys])  , axis=1)
+        model.addConstrs(   ( left_side[i,j] == right_side[i,j]  for i in range(n[sys]) for j in range(disturb[sys].G.shape[1]+k[sys]))     )  
+        
+        center = np.dot(list_system[sys].A ,np.array([xbar[sys]]).T ) + np.dot(list_system[sys].B ,np.array([ubar[sys]]).T ) + disturb[sys].x
+        model.addConstrs( center[i][0] == xbar[sys][i] for i in range(n[sys]))
+    model.update()
+    
+    return xbar,T,ubar,M, alpha_x,alpha_u
