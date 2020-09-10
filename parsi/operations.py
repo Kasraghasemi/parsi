@@ -32,7 +32,7 @@ def rci(system,order_max=10,size='min',obj='include_center'):
     n= system.A.shape[0]
     
     for order in np.arange(1, order_max, 1/n):
-        print('order',order)
+        
         prog=MP.MathematicalProgram()
         var=parsi.rci_constraints(prog,system,T_order=order)
         T=var['T'].flatten()
@@ -53,7 +53,7 @@ def rci(system,order_max=10,size='min',obj='include_center'):
 
         #Result
         result=gurobi_solver.Solve(prog)    
-        print('result',result.is_success())
+        #print('result',result.is_success())
         beta = system.beta if not 'beta' in var else result.GetSolution(var['beta'])
         if result.is_success():
             T_x=result.GetSolution(var['T_x'])
