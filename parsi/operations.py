@@ -112,7 +112,7 @@ def viable_limited_time(system,order_max=10,size='min',obj='include_center',algo
 
 
 
-def sub_systems(system,partition_A,partition_B):
+def sub_systems(system,partition_A,partition_B,disturbance=True):
     """
     The input is a large system and partition over system.A 
     example: [2,3,1] creates A_{11}=2*2, A_{22}=3*3, and A_{33}=1*1
@@ -131,9 +131,10 @@ def sub_systems(system,partition_A,partition_B):
     X=pp.decompose(system.X,partition_A)
     U=pp.decompose(system.U,partition_B)
 
-    #Right now, it just covers disturbances with order 1.
-    W = pp.boxing_order_reduction(system.W,desired_order=1)
-    W=pp.decompose(W,partition_A)
+    #Right now, it just covers disturbances with order 1
+    if disturbance==True:
+        W = pp.boxing_order_reduction(system.W,desired_order=1)
+        W=pp.decompose(W,partition_A)
 
     sys=[ parsi.Linear_system(A[i][i] , B[i][i] , W=W[i],X=X[i] , U=U[i]) for i in range(number_of_subsys)]
     for i in range(number_of_subsys):
@@ -282,10 +283,7 @@ def decentralized_rci_centralized_gurobi(list_system,initial_guess='nominal',siz
             
             del model
             continue
-
-
-        print('orrrrrrrder',order)
-
+        print('modelhere.isMIP',model.isMIP)
         T_result= [ np.array( [ [ T[sys][i][j].X for j in range(len(T[sys][i])) ] for i in range(n[sys]) ] ) for sys in range(number_of_subsys) ]
         T_x_result = [ np.array( [ xbar[sys][i].X for i in range(n[sys]) ] ) for sys in range(number_of_subsys) ]
         alfa_x = [ np.array( [ alpha_x[sys][i].X for i in range(len(alpha_x[sys])) ] ) for sys in range(number_of_subsys)]
@@ -305,7 +303,7 @@ def decentralized_rci_centralized_gurobi(list_system,initial_guess='nominal',siz
     
     print('Could not find any solution, you can increase order_max and try again.')
     return None
-        
+
 
 #MPC: right now it just covers point convergence
 def mpc(system,horizon=1,x_desired='origin'):

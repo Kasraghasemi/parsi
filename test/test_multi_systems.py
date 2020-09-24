@@ -21,9 +21,9 @@ m=1*number_of_subsystems
 
 np.random.seed(seed=2)
 A=np.random.rand(n,n)* landa
-B=np.random.rand(n,m)* landa
+#B=np.random.rand(n,m)* landa
 #A=np.zeros((n,n))
-#B=np.zeros((n,m))
+B=np.zeros((n,m))
 
 for i in range(number_of_subsystems): 
     A[2*i:2*(i+1),2*i:2*(i+1)]= np.array([[1,1],[0,1]]) * delta
@@ -41,6 +41,7 @@ for i in range(number_of_subsystems):
 
 #omega,theta = parsi.decentralized_rci(sub_sys,size='min')
 omega,theta=parsi.decentralized_rci(sub_sys,method='centralized',initial_guess='nominal',size='min',solver='gurobi',order_max=100)
+#omega,theta=parsi.decentralized_rci(sub_sys,method='centralized',initial_guess='nominal',size='min',solver='drake',order_max=100)
 
 for i in range(number_of_subsystems):
     sub_sys[i].omega=omega[i]
@@ -70,4 +71,19 @@ for step in range(50):
         c=i%cols
         axs[r,c].plot(path[2*i,:],path[2*i+1,:],color='b')
     plt.pause(0.02)
+
+# fig, axs = plt.subplots(number_of_subsystems)
+# for i in range(number_of_subsystems):
+#     sub_sys[i].X.color='red'
+#     pp.visualize([sub_sys[i].X,omega[i]], ax = axs[i],fig=fig, title='',equal_axis=True)
+# for step in range(50):
+#     #Finding the controller
+#     u=np.array([parsi.mpc(sub_sys[i],horizon=1,x_desired='origin') for i in range(number_of_subsystems)]).flatten()
+#     state= system.simulate(u)
+#     path=np.concatenate((path,state.reshape(-1,1)) ,axis=1)
+#     for i in range(number_of_subsystems):
+#         sub_sys[i].state=system.state[2*i:2*(i+1)]
+#         axs[i].plot(path[2*i,:],path[2*i+1,:],color='b')
+#     plt.pause(0.02)
+
 plt.show()  
