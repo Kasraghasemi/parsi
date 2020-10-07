@@ -107,6 +107,13 @@ class Linear_system:
         self.param_set_X=X_i[0]
         self.param_set_U=U_i[0]
 
+    def mapping_alpha_to_feasible_set(self):
+        """
+        This function replaces the the elements of alpha which are larger than alpha_max with their corresponding elements in alpha_max 
+        """
+        self.alpha_x[self.alpha_x>self.alpha_x_max]=self.alpha_x_max[self.alpha_x>self.alpha_x_max]
+        self.alpha_u[self.alpha_u>self.alpha_u_max]=self.alpha_u_max[self.alpha_u>self.alpha_u_max]
+
 
 #sampling from a set represented in zonotope
 def sample(zonotope):
@@ -117,7 +124,7 @@ def sample(zonotope):
 
 
 # Initilizing the paramterize set in computing decentralized rci sets
-def rci_decentralized_initialization(list_system,initial_guess='nominal',order_max=10,size='min',obj='include_center'):
+def rci_decentralized_initialization(list_system,initial_guess='nominal',order_max=50,size='min',obj='include_center'):
     
     # The intitial guesses are the rci sets without considering the couplings
     if initial_guess=='nominal':
@@ -156,7 +163,7 @@ def alpha_max(inbody,circumbody,solver='gurobi'):
     model.optimize()
     alpha_max= [ alpha[i].X for i in range(len(alpha)) ]
 
-    return alpha_max
+    return np.array(alpha_max)
          
 
 

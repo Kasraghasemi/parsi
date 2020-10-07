@@ -135,6 +135,8 @@ def sub_systems(system,partition_A,partition_B,disturbance=True):
     if disturbance==True:
         W = pp.boxing_order_reduction(system.W,desired_order=1)
         W=pp.decompose(W,partition_A)
+    else:
+        W = disturbance             # disturbance is a list of zonotopes
 
     sys=[ parsi.Linear_system(A[i][i] , B[i][i] , W=W[i],X=X[i] , U=U[i]) for i in range(number_of_subsys)]
     for i in range(number_of_subsys):
@@ -357,5 +359,58 @@ def mpc(system,horizon=1,x_desired='origin'):
         return u_mpc
 
 
+def compositional_decentralized_rci(list_system,initial_guess='nominal',size='min',initial_order=2,step_size=0.1,alpha_0='random',order_max=100):
+    """
+    This function is for compositional computation of decentralized rci sets.
+    Input:  list of LTI systems
+            initial_guess for paramterized sets
+            size= minimal approximation
+            maximum order to try to find the T and M
+    Output: Omega and Theta
+    """
+    order=initial_order
 
-    
+    for i in list_system:
+        i.parameterized_set_initialization()
+        i.set_alpha_max({'x': i.param_set_X, 'u':i.param_set_U})
+
+    if alpha_0=='random':
+        for i in list_system:
+            i.alpha_x=np.dot( np.random.rand(len(i.alpha_x_max)) , np.diag(i.alpha_x_max) )
+            i.alpha_u=np.dot(np.random.rand(len(i.alpha_u_max)) , np.diag(i.alpha_u_max) )
+            i.mapping_alpha_to_feasible_set()
+    # alpha_x= np.array([i.alpha_x for i in list_system]).reshape(-1)
+    # alpha_u= np.array([i.alpha_u for i in list_system]).reshape(-1)
+
+    objective_function=1
+    objective_function_previous=2
+    iteration=0
+    while objective_function>0 or iteration<10000 or order==order_max:
+        
+        subsystems_output = [ parsi.potential_function(list_system, system_index, T_order=order, reduced_order=1) for system_index in range(len(list_system)) ]
+        objective_function_previous=objective_function
+        objective_function=sum([subsystems_output[i]['obj'] for i in range(len(list_system)) ])
+        if objective_function==0:
+            print('HHHHHHHHHHEEEEEEEEEEEEEYYYYYYYYYY')
+            for i in range(len(list_system)):
+                list_system[i].omega=pp.zonotope(G=subsystems_output[i]['T'],x=subsystems_output[i]['xbar'])
+                list_system[i].theta=pp.zonotope(G=subsystems_output[i]['M'],x=subsystems_output[i]['ubar'])
+            return [i.omega for i in list_system],[i.theta for i in list_system]
+
+        else:
+            for i in range(len(list_system)):
+                grad_x= np.array(sum([subsystems_output[j]['alpha_x_grad'][i] for j in range(len(list_system))]))
+                grad_u= np.array(sum([subsystems_output[j]['alpha_u_grad'][i] for j in range(len(list_system))]))
+                list_system[i].alpha_x = list_system[i].alpha_x - step_size * grad_x
+                list_system[i].alpha_u = list_system[i].alpha_u - step_size * grad_u
+                list_system[i].mapping_alpha_to_feasible_set()
+
+        if abs(objective_function - objective_function_previous)< 10**(-4):
+            order=order+1
+            step_size=step_size+0.1
+            print('order',order)
+            print('step size',step_size)
+
+        iteration += 1
+        print('objective_function',objective_function)
+    return objective_function

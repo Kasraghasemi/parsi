@@ -264,8 +264,8 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
     k = round(n[system_index]*T_order) 
 
     # Initilizing the paramterize set
-    if any([sys.omega==None for sys in list_system]) and any([sys.theta==None for sys in list_system]) :
-        X_i,U_i = parsi.rci_decentralized_initialization(list_system,initial_guess='nominal',order_max=10,size='min',obj='include_center')
+    if any([sys.omega==None for sys in list_system]) or any([sys.theta==None for sys in list_system]) :
+        X_i,U_i = parsi.rci_decentralized_initialization(list_system,initial_guess='nominal',order_max=30,size='min',obj='include_center')
     else:
         X_i=[sys.omega for sys in list_system]
         U_i=[sys.theta for sys in list_system]
@@ -279,9 +279,9 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
         if j in list_system[system_index].B_ij:
             w=pp.zonotope(G= np.dot(np.dot( list_system[system_index].B_ij[j], U_i[j].G), np.diag(list_system[j].alpha_u) ) , x= np.dot( list_system[system_index].B_ij[j], U_i[j].x))
             disturb= disturb+w
-    
+
     # Using Zonotope order reduction
-    disturb= pp.boxing_order_reduction(disturb,desired_order=reduced_order)      ##################################################################################
+    disturb= pp.boxing_order_reduction(disturb,desired_order=reduced_order)      # For now it just covers reduced_order equal to 1
 
     # Creating the model
     model = Model()
@@ -323,53 +323,69 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
     # Setting 
     d_x,alpha_i_x_constraints=parsi.hausdorff_distance_condition(model, pp.zonotope(x=xbar,G=T) , X_i[system_index] ,list_system[system_index].alpha_x)
     d_u,alpha_i_u_constraints=parsi.hausdorff_distance_condition(model, pp.zonotope(x=ubar,G=M) , U_i[system_index] ,list_system[system_index].alpha_u)
-    
+
     model.setObjective( d_x+d_u , GRB.MINIMIZE )
     model.update()
 
     model.setParam("OutputFlag",False)
     model.optimize()
+    #print('MODEL',model.IsMIP)
+    # print('MODEL STATUS',model.Status)
+    #print('OBJECTIVE FUNCTION',model.objVal)
 
-    
-    length_x_alpha=[i.alpha_x.shape[0] for i in list_system]
-    length_x_alpha.insert(0,0)
-    accum_length_x_alpha=list(accumulate(length_x_alpha))
-    grad_x=np.zeros(accum_length_x_alpha[-1])             # you need to intialize alpha for all sub-systems before running this code!
-    
-    length_u_alpha=[i.alpha_u.shape[0] for i in list_system]
-    length_u_alpha.insert(0,0)
-    accum_length_u_alpha=list(accumulate(length_u_alpha))
-    grad_u=np.zeros(accum_length_u_alpha[-1])             # you need to intialize alpha for all sub-systems before running this code!
+
+    #length_x_alpha=[i.alpha_x.shape[0] for i in list_system]
+    #length_x_alpha.insert(0,0)
+    #accum_length_x_alpha=list(accumulate(length_x_alpha))
+    #grad_x=np.zeros(accum_length_x_alpha[-1])             # you need to intialize alpha for all sub-systems before running this code!
+    grad_x_i=[]
+
+    #length_u_alpha=[i.alpha_u.shape[0] for i in list_system]
+    #length_u_alpha.insert(0,0)
+    #accum_length_u_alpha=list(accumulate(length_u_alpha))
+    #grad_u=np.zeros(accum_length_u_alpha[-1])             # you need to intialize alpha for all sub-systems before running this code!
+    grad_u_i=[]
 
     for j in range(sys_number):
         if j==system_index:
-            grad_x[accum_length_x_alpha[j]:accum_length_x_alpha[j+1]]=np.array([alpha_i_x_constraints[i].pi for i in range(len(alpha_i_x_constraints))])
+            grad_x_i.append( np.array([alpha_i_x_constraints[i].pi for i in range(len(alpha_i_x_constraints))] ))
+            #grad_x[accum_length_x_alpha[j]:accum_length_x_alpha[j+1]]=np.array(grad_x_i[-1])
         elif not j in list_system[system_index].A_ij:
             continue
         else:
-            grad_x[accum_length_x_alpha[j]:accum_length_x_alpha[j+1]]= \
-                            np.array([sum([alpha_j_constraints[row].pi * (abs(np.dot( list_system[system_index].A_ij[j][row,:], X_i[j].G[:,i]))) \
+            grad_x_i.append( np.array( [sum([alpha_j_constraints[row].pi * (abs(np.dot( list_system[system_index].A_ij[j][row,:], X_i[j].G[:,i]))) \
                             for row in range(disturb.G.shape[0])]) \
-                            for i in range(X_i[j].G.shape[1])])
+                            for i in range(X_i[j].G.shape[1])] ))
+            #grad_x[accum_length_x_alpha[j]:accum_length_x_alpha[j+1]]= np.array(grad_x_i[-1])
 
     for j in range(sys_number):
         if j==system_index:
-            grad_u[accum_length_u_alpha[j]:accum_length_u_alpha[j+1]]=np.array([alpha_i_u_constraints[i].pi for i in range(len(alpha_i_u_constraints))])
+            grad_u_i.append( np.array( [alpha_i_u_constraints[i].pi for i in range(len(alpha_i_u_constraints))] ))
+            #grad_u[accum_length_u_alpha[j]:accum_length_u_alpha[j+1]]=np.array(grad_u_i[-1])
         elif not j in list_system[system_index].B_ij:
             continue
         else:
-            grad_u[accum_length_u_alpha[j]:accum_length_u_alpha[j+1]]= \
-                            np.array([sum([alpha_j_constraints[row].pi * (abs(np.dot( list_system[system_index].B_ij[j][row,:], U_i[j].G[:,i]))) \
+            grad_u_i.append( np.array( [sum([alpha_j_constraints[row].pi * (abs(np.dot( list_system[system_index].B_ij[j][row,:], U_i[j].G[:,i]))) \
                             for row in range(disturb.G.shape[0])]) \
-                            for i in range(U_i[j].G.shape[1])])
+                            for i in range(U_i[j].G.shape[1])]) )
+            #grad_u[accum_length_u_alpha[j]:accum_length_u_alpha[j+1]]= np.array(grad_u_i[-1])
+    
+    T_result= np.array([ [ T[i][j].X for j in range(k) ] for i in range(n[system_index]) ] )
+    T_x_result = np.array( [ xbar[i].X for i in range(n[system_index]) ] ) 
+
+    M_result= np.array([ [ T[i][j].X for j in range(k) ] for i in range(m[system_index]) ] )
+    M_x_result = np.array( [ ubar[i].X for i in range(m[system_index]) ] ) 
 
     potential_output={
         'obj': model.objVal ,
         'obj_x': d_x.X,
         'obj_u':d_u.X,
-        'alpha_x_grad':grad_x,
-        'alpha_u_grad':grad_u,
-        'grad':np.concatenate((grad_x,grad_u))
+        'alpha_x_grad':grad_x_i,
+        'alpha_u_grad':grad_u_i,
+        'xbar':T_x_result,
+        'T':T_result,
+        'ubar':M_x_result,
+        'M':M_result
     }
 
     return potential_output

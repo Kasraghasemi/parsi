@@ -7,7 +7,7 @@ from math import ceil
 try:
     import pypolycontain as pp
 except:
-    print('Error: pypolycontain package is not installed correctly') 
+    raise ModuleNotFoundError("pypolycontain package is not installed correctly")
 try:
     import parsi
 except:
@@ -15,7 +15,7 @@ except:
 
 landa=0.01
 delta=0.1
-number_of_subsystems= 20
+number_of_subsystems= 5
 n=2*number_of_subsystems
 m=1*number_of_subsystems
 
@@ -54,7 +54,8 @@ for i in sub_sys:
     # i.alpha_u=np.array(i.alpha_u_max)*0.5
 
 # Output for one specific sub-system
-output=parsi.potential_function(sub_sys, 1, T_order=10, reduced_order=1)
+output=parsi.potential_function(sub_sys, 0, T_order=10, reduced_order=1)
+
 print('x',output['alpha_x_grad'])
 print('u',output['alpha_u_grad'])
 print('obj',output['obj'])
