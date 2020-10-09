@@ -330,7 +330,7 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
     model.setParam("OutputFlag",False)
     model.optimize()
     #print('MODEL',model.IsMIP)
-    # print('MODEL STATUS',model.Status)
+    print('MODEL STATUS',model.Status)
     #print('OBJECTIVE FUNCTION',model.objVal)
 
 
@@ -351,7 +351,7 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
             grad_x_i.append( np.array([alpha_i_x_constraints[i].pi for i in range(len(alpha_i_x_constraints))] ))
             #grad_x[accum_length_x_alpha[j]:accum_length_x_alpha[j+1]]=np.array(grad_x_i[-1])
         elif not j in list_system[system_index].A_ij:
-            continue
+            grad_x_i.append( np.zeros(list_system[j].alpha_x.shape[0]))
         else:
             grad_x_i.append( np.array( [sum([alpha_j_constraints[row].pi * (abs(np.dot( list_system[system_index].A_ij[j][row,:], X_i[j].G[:,i]))) \
                             for row in range(disturb.G.shape[0])]) \
@@ -363,7 +363,7 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
             grad_u_i.append( np.array( [alpha_i_u_constraints[i].pi for i in range(len(alpha_i_u_constraints))] ))
             #grad_u[accum_length_u_alpha[j]:accum_length_u_alpha[j+1]]=np.array(grad_u_i[-1])
         elif not j in list_system[system_index].B_ij:
-            continue
+            grad_u_i.append( np.zeros(list_system[j].alpha_u.shape[0]))
         else:
             grad_u_i.append( np.array( [sum([alpha_j_constraints[row].pi * (abs(np.dot( list_system[system_index].B_ij[j][row,:], U_i[j].G[:,i]))) \
                             for row in range(disturb.G.shape[0])]) \

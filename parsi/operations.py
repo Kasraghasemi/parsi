@@ -111,7 +111,6 @@ def viable_limited_time(system,order_max=10,size='min',obj='include_center',algo
     return None,None
 
 
-
 def sub_systems(system,partition_A,partition_B,disturbance=True):
     """
     The input is a large system and partition over system.A 
@@ -157,13 +156,15 @@ def decentralized_rci(list_system,method='centralized',initial_guess='nominal',s
     """
     if solver=='drake' and method=='centralized':
         omega,theta = decentralized_rci_centralized_drake(list_system,initial_guess=initial_guess,size=size,order_max=order_max)
-        return omega,theta
 
     elif solver=='gurobi' and method=='centralized':
         omega,theta,_,_=decentralized_rci_centralized_gurobi(list_system,initial_guess=initial_guess,size=size,order_max=order_max)
-        return omega,theta
+    
+    for i in range(len(list_system)):
+        list_system[i].omega=omega[i]
+        list_system[i].theta=theta[i]
 
-
+    return omega,theta
 
 
 def decentralized_rci_centralized_drake(sys,initial_guess='nominal',size='min',order_max=10):
@@ -285,7 +286,6 @@ def decentralized_rci_centralized_gurobi(list_system,initial_guess='nominal',siz
             
             del model
             continue
-        print('modelhere.isMIP',model.isMIP)
         T_result= [ np.array( [ [ T[sys][i][j].X for j in range(len(T[sys][i])) ] for i in range(n[sys]) ] ) for sys in range(number_of_subsys) ]
         T_x_result = [ np.array( [ xbar[sys][i].X for i in range(n[sys]) ] ) for sys in range(number_of_subsys) ]
         alfa_x = [ np.array( [ alpha_x[sys][i].X for i in range(len(alpha_x[sys])) ] ) for sys in range(number_of_subsys)]
@@ -391,10 +391,10 @@ def compositional_decentralized_rci(list_system,initial_guess='nominal',size='mi
         objective_function_previous=objective_function
         objective_function=sum([subsystems_output[i]['obj'] for i in range(len(list_system)) ])
         if objective_function==0:
-            print('HHHHHHHHHHEEEEEEEEEEEEEYYYYYYYYYY')
             for i in range(len(list_system)):
                 list_system[i].omega=pp.zonotope(G=subsystems_output[i]['T'],x=subsystems_output[i]['xbar'])
                 list_system[i].theta=pp.zonotope(G=subsystems_output[i]['M'],x=subsystems_output[i]['ubar'])
+                print('SSSSSSSSSOOOOOOLLLLVED')
             return [i.omega for i in list_system],[i.theta for i in list_system]
 
         else:
@@ -414,3 +414,41 @@ def compositional_decentralized_rci(list_system,initial_guess='nominal',size='mi
         iteration += 1
         print('objective_function',objective_function)
     return objective_function
+
+
+def shrinking_rci(list_system,reduced_order=2,order_reduction_method='pca'):
+    """
+    The goal is shrinking the rci sets. It 
+    """
+    sys_number=len(list_system)
+
+    while any([i.X!=i.omega for i in list_system]):
+        print('OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO')
+        # Computing the disturbance set
+        disturb=[]
+        for i in range(sys_number):
+            disturb.append(list_system[i].W)
+        for i in range(sys_number):
+            for j in range(sys_number):
+                if j in list_system[i].A_ij:
+                    w=pp.zonotope(G= np.dot( list_system[i].A_ij[j], list_system[j].omega.G) , x= np.dot( list_system[i].A_ij[j], list_system[j].omega.x))
+                    disturb[i] = disturb[i]+ w
+                if j in list_system[i].B_ij:
+                    w=pp.zonotope(G= np.dot( list_system[i].B_ij[j], list_system[j].theta.G) , x= np.dot( list_system[i].B_ij[j], list_system[j].theta.x))
+                    disturb[i] = disturb[i]+ w
+            
+            # ADDING ORDER REDUCTION FOR DISTURBANCE
+            if order_reduction_method=='pca':
+                list_system[i].W= pp.pca_order_reduction(disturb[i],desired_order=reduced_order)
+            elif order_reduction_method=='boxing':
+                list_system[i].W= pp.boxing_order_reduction(disturb[i],desired_order=reduced_order)
+            else:
+                list_system[i].W=disturb[i]
+
+        for system in list_system:  
+
+            system.X=system.omega               # this will enforce the new rci set be subset of the previous one.
+            r,_ = rci(system,order_max=100,size='min',obj='include_center')
+            print('system',system)
+            system.omega=r
+    return [i.omega for i in list_system]
