@@ -235,7 +235,7 @@ def hausdorff_distance_condition(model,zon1,zon2,alpha):
 
     alpha_i_constraints = [model.addConstr(scale[i] == alpha[i])  for i in range(zon2.G.shape[1])]
 
-    model.addConstrs(scale[i] == d  for i in range(zon2.G.shape[1],circumbody.G.shape[1] ))
+    model.addConstrs((scale[i] == d  for i in range(zon2.G.shape[1],circumbody.G.shape[1]) ))
     
     # model.setObjective( d , GRB.MINIMIZE )              # minimizing d to find the smallest raduis
     model.update()
@@ -373,7 +373,7 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
     T_result= np.array([ [ T[i][j].X for j in range(k) ] for i in range(n[system_index]) ] )
     T_x_result = np.array( [ xbar[i].X for i in range(n[system_index]) ] ) 
 
-    M_result= np.array([ [ T[i][j].X for j in range(k) ] for i in range(m[system_index]) ] )
+    M_result= np.array([ [ M[i][j].X for j in range(k) ] for i in range(m[system_index]) ] )
     M_x_result = np.array( [ ubar[i].X for i in range(m[system_index]) ] ) 
 
     potential_output={

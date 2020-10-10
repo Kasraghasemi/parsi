@@ -112,8 +112,10 @@ class Linear_system:
         This function replaces the the elements of alpha which are larger than alpha_max with their corresponding elements in alpha_max 
         """
         self.alpha_x[self.alpha_x>self.alpha_x_max]=self.alpha_x_max[self.alpha_x>self.alpha_x_max]
-        self.alpha_u[self.alpha_u>self.alpha_u_max]=self.alpha_u_max[self.alpha_u>self.alpha_u_max]
+        self.alpha_x[self.alpha_x<0]=0
 
+        self.alpha_u[self.alpha_u>self.alpha_u_max]=self.alpha_u_max[self.alpha_u>self.alpha_u_max]
+        self.alpha_u[self.alpha_u<0]=0
 
 #sampling from a set represented in zonotope
 def sample(zonotope):

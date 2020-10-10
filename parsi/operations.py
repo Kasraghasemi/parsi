@@ -55,6 +55,7 @@ def rci(system,order_max=10,size='min',obj='include_center'):
         result=gurobi_solver.Solve(prog)    
         #print('result',result.is_success())
         beta = system.beta if not 'beta' in var else result.GetSolution(var['beta'])
+
         if result.is_success():
             T_x=result.GetSolution(var['T_x'])
             M_x=result.GetSolution(var['M_x'])
@@ -373,12 +374,33 @@ def compositional_decentralized_rci(list_system,initial_guess='nominal',size='mi
     for i in list_system:
         i.parameterized_set_initialization()
         i.set_alpha_max({'x': i.param_set_X, 'u':i.param_set_U})
+    
+    
+    ######################################################################################################################
+    # import matplotlib.pyplot as plt
+    # from math import ceil
+    # number_of_subsystems=len(list_system)
+    # cols=5
+    # fig, axs = plt.subplots(int(ceil(number_of_subsystems / cols)),cols)
+    # for i in range(number_of_subsystems):
+    #     list_system[i].X.color='red'
+    #     r=i//cols
+    #     c=i%cols
+    #     pp.visualize([list_system[i].X,list_system[i].omega], ax = axs[r,c],fig=fig, title='',equal_axis=True)
+    # plt.show()
+    ######################################################################################################################
+
+
 
     if alpha_0=='random':
         for i in list_system:
             i.alpha_x=np.dot( np.random.rand(len(i.alpha_x_max)) , np.diag(i.alpha_x_max) )
             i.alpha_u=np.dot(np.random.rand(len(i.alpha_u_max)) , np.diag(i.alpha_u_max) )
             i.mapping_alpha_to_feasible_set()
+    elif alpha_0=='zero':
+        for i in list_system:
+            i.alpha_x=np.zeros(len(i.alpha_x_max))
+            i.alpha_u=np.zeros(len(i.alpha_u_max))
     # alpha_x= np.array([i.alpha_x for i in list_system]).reshape(-1)
     # alpha_u= np.array([i.alpha_u for i in list_system]).reshape(-1)
 
@@ -394,7 +416,7 @@ def compositional_decentralized_rci(list_system,initial_guess='nominal',size='mi
             for i in range(len(list_system)):
                 list_system[i].omega=pp.zonotope(G=subsystems_output[i]['T'],x=subsystems_output[i]['xbar'])
                 list_system[i].theta=pp.zonotope(G=subsystems_output[i]['M'],x=subsystems_output[i]['ubar'])
-                print('SSSSSSSSSOOOOOOLLLLVED')
+                
             return [i.omega for i in list_system],[i.theta for i in list_system]
 
         else:
