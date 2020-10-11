@@ -9,21 +9,22 @@ try:
 except:
     raise ModuleNotFoundError("parsi package is not installed properly")
 
-A=np.array([[1,1],[0,1]]) 
-B=np.array([[0],[1]])
-W=pp.zonotope(G=np.eye(2),x=[0,0])*0.1
+A=np.array([[1,1],[0,1]]) * 0.3
+B=np.array([[0],[1]]) * 0.3
+W=pp.zonotope(G=np.eye(2),x=[0,0])*0.55
 X=pp.zonotope(G=np.eye(2),x=[0,0],color='red')
 U=pp.zonotope(G=np.eye(1),x=[0])
 
 #Defining the system
 sys=parsi.Linear_system(A,B,W=W,X=X,U=U)
-sys.beta=0.2
+sys.beta=0.5
 sys.E=True
 sys.rci(size='min')
+print('omega',sys.omega.G.shape,sys.omega.G)
 sys.state=parsi.sample(sys.omega)
 pp.visualize([sys.X,sys.omega])
 path=sys.state.reshape(-1,1)
-for step in range(500):
+for step in range(5000):
     #Finding the controller
     u=parsi.mpc(sys,horizon=1,x_desired='origin')
     state= sys.simulate(u)

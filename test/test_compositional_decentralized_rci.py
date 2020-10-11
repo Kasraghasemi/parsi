@@ -14,7 +14,7 @@ except:
     raise ModuleNotFoundError("parsi package is not installed properly")
 
 landa=0.01
-delta=0.1
+delta=1
 number_of_subsystems= 10
 n=2*number_of_subsystems
 m=1*number_of_subsystems
@@ -59,7 +59,7 @@ for i in range(number_of_subsystems):
     r=i//cols
     c=i%cols
     pp.visualize([sub_sys[i].X,omega[i]], ax = axs[r,c],fig=fig, title='',equal_axis=True)
-    print('omega',sub_sys[i].omega.G)
+    # print('omega',sub_sys[i].omega.G)
 
 for step in range(50):
     #Finding the controller

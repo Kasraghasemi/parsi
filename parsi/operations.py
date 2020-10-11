@@ -416,7 +416,7 @@ def compositional_decentralized_rci(list_system,initial_guess='nominal',size='mi
             for i in range(len(list_system)):
                 list_system[i].omega=pp.zonotope(G=subsystems_output[i]['T'],x=subsystems_output[i]['xbar'])
                 list_system[i].theta=pp.zonotope(G=subsystems_output[i]['M'],x=subsystems_output[i]['ubar'])
-                
+
             return [i.omega for i in list_system],[i.theta for i in list_system]
 
         else:
@@ -470,7 +470,6 @@ def shrinking_rci(list_system,reduced_order=2,order_reduction_method='pca'):
         for system in list_system:  
 
             system.X=system.omega               # this will enforce the new rci set be subset of the previous one.
-            r,_ = rci(system,order_max=100,size='min',obj='include_center')
-            print('system',system)
-            system.omega=r
+            system.omega,_ = rci(system,order_max=100,size='min',obj='include_center')
+            print('system',system.omega.G)
     return [i.omega for i in list_system]
