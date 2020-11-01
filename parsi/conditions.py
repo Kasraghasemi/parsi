@@ -389,3 +389,305 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
     }
 
     return potential_output
+
+
+# def centralized_viable_sets_mpc_conditions(model,horizon,list_system,T_order=3,algorithm='slow'):
+#     """
+#     This function adds the necessary constrainnts for viable set of an LTI system. It is written in Gurobi, directly.
+#     Inputs: 
+#         (1) model, needs to be a Gurobi model
+#         (2) horizon, which is the horizon, or in other words, number of viable sets
+#         (3) list_system, which is a set of systems. Note that each system.state needs to be initialized before calling this function.
+#         (4) T_order, which lead to number of columns of T (viable sets generator)
+#         (5) algoritm, it is either 'slow' or 'fast', which specifies the right hand side of the viable set constraint. [T] for 'slow' and [0,T] for 'fast'
+#     Outputs:
+#         T_x,T,M_x,M which specify the viables sets and action sets in zonotope for all systems.
+#     """
+#     assert( all([i.sys=='LTI' for i in list_system])), "all systems have to be LTI (linear time invariant)"
+#     from itertools import accumulate
+#     sys_number = len(list_system)
+#     n = [i.A.shape[0] for i in list_system]               # Matrix A is n*n
+#     m = [i.B.shape[1] for i in list_system]               # Matrix B is n*m
+#     k = [round(n[i]*T_order) for i in range(sys_number)]
+#     dist_G_numberofcolumns = [i.W.G.shape[1] for i in list_system]
+#     if algorithm=='slow':
+#         [i.insert(0,k) for i in dist_G_numberofcolumns]
+#         p = [list(accumulate(dist_G_numberofcolumns[i])) for i in range(sys_number)]              # p[i] shows the number of columns for T[i], when algorithm='slow'
+    
+#     #Defining Variables
+
+#     # T is the generator for the viable set. Note that the first step does not have a generator since it is just a given point.
+#     T= [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(p[sys])] for j in range(n[sys])] ) for steps in range(horizon)] for sys in range(sys_number)] if algorithm=='slow' \
+#         else [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(n[sys])] ) for steps in range(horizon)] for sys in range(sys_number)]
+    
+#     # M is the generator for the action set. Note that the first and last step does not have generators since the first step is supposed to have a vector of controller and the last one does not need one.
+#     M= [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(m[sys])] ) for steps in range(horizon-1)] for sys in range(sys_number)] if algorithm=='slow' \
+#         else [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(m[sys])] ) for steps in range(horizon-1)] for sys in range(sys_number)]
+
+#     xbar=[ [np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(n[sys])]) for steps in range(horizon)] for sys in range(sys_number)]
+#     ubar=[ [np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(m[sys])]) for steps in range(horizon-1)] for sys in range(sys_number)]
+    
+#     for sys in range(sys_number):
+#         # Adding hard constraints over state and control input spaces
+#         if list_system[sys].U != None:
+#             pp.zonotope_subset(model, pp.zonotope(x=np.array(ubar[sys]).T,G= M[sys]) , list_system[sys].U ,solver='gurobi')
+#         if list_system[sys].X != None:
+#             pp.zonotope_subset(model, pp.zonotope(x=np.array(xbar[sys]).T,G=T[sys]) , list_system[sys].X ,solver='gurobi' )
+
+
+
+
+
+#     #Defining Constraints
+#     left_side = [np.concatenate( (np.dot(system.A[i],T[i])+np.dot(system.B[i],M[i]) , system.W[i].G) ,axis=1) for i in range(number_of_steps-1)]               #[AT+BM,W]
+#     right_side = T[1:] if algorithm=='slow' else [np.concatenate( ( np.zeros((n,dist_G_numberofcolumns[i-1])) ,T[i] ),axis=1) for i in range(1,number_of_steps)]             #[T] if algorithm=='slow' , [0,T] if algorithm=='fast'
+#     [program.AddLinearConstraint(np.equal(left_side[i],right_side[i],dtype='object').flatten()) for i in range(number_of_steps-1)]             #[A(t)T(t)+B(t)M(t),W(t)]==[T(t+1)]
+
+#     #Implementing Hard Constraints over control input and state space
+#     if system.X!=None:
+#         [pp.zonotope_subset(program, pp.zonotope(G=T[i],x=T_x[i]) , system.X ) for i in range(number_of_steps)]
+#     if system.U!=None:
+#         [pp.zonotope_subset(program, pp.zonotope(G=M[i],x=M_x[i]) , system.U ) for i in range(number_of_steps-1)]
+    
+#     #Constraints for the centers
+#     center=[np.equal( np.dot(system.A[i] , T_x[i]) + np.dot(system.B[i] , M_x[i]) + system.W[i].x , T_x[i+1] ,dtype='object').flatten() for i in range(number_of_steps-1)]
+#     [program.AddLinearConstraint(center[i]) for i in range(number_of_steps-1)]              #A*x_bar+ B*u_bar +w_bar==x_bar       #IT WILL MAKE PROBLEM WHEN IT BECOMES TRUE!
+
+#     output={
+#         'T':T,
+#         'T_x': T_x,
+#         'M':M,
+#         'M_x': M_x
+#     }    
+
+#     return output
+
+
+# the potential function for coupled LTI subsystems. MPC strating from a given point and ending up inside rci set.
+def potential_function_distributed_mpc(list_system, system_index,horizon, T_order=3, reduced_order=1,algorithm='slow'):
+    """
+    The state (system.state) and rci set (system.omega) needs to be initialized prior to using this function.
+    The same is true for alpha_x and alpha_u (system.alpha_x, system.alpha_u)
+    Inputs: 
+            (1)the list of coupled linear systems
+            (2)the index of the system which you want to compute
+            (3)horizon of the mpc
+            (4)the order of the candidate viable sets
+            (5)the order of the reduced disturbance set
+            (6)algorithm: 'slow' represents [AT+BM,W]=[T] and 'fast' represents [AT+BM,W]=[0,T]
+    Outputs:
+            (1)the sum of directed hausdorf distances between viable sets and the sate paramterized sets (assumptions over state) 
+            (2)the sum of directed hausdorf distances between action set and the control input paramterized sets (assumptions over control input) 
+            (3)the gradients of (1) with respect to alpha_x , does not include time 0
+            (4)the gradients of (2) with respect to alpha_u , does not include time 0
+            (5)the gradients with respect to centers of assumptions for both state (does not include time 0) and control inputs (does include time 0)
+    """
+
+    from itertools import accumulate
+    sys_number = len(list_system)
+    n=[list_system[i].A.shape[0] for i in range(sys_number)]
+    m=[list_system[i].B.shape[1] for i in range(sys_number)]
+    k = round(n[system_index]*T_order) 
+
+    # Initilizing the paramterize set
+    # FOR NOW I ASSUME THEIR CENTER IS ZERO
+    X_i=[sys.omega for sys in list_system]
+    U_i=[sys.theta for sys in list_system]
+
+
+    # CENTERS ARE GIVEN IN sytem.x_nominal and system.u_nominal: Both need to start from 0 to h (for u it will go up to h-1 )
+
+    # # Center of the parameterized sets for state
+    # X_i_x= [ [np.array([ model.addVar(lb = -GRB.INFINITY) for i in range(n[sys]) ]) for j in range(horizon)] for sys in range(sys_number)]
+    # [X_i_x[sys].insert(0,list_system[system_index].state) for sys in range(sys_number)]
+
+    # # THIS IS WRONG IT NEEDS TO BE GIVEN
+
+    # # Center of the parameterized sets for control
+    # U_i_x= [ [np.array([ model.addVar(lb = -GRB.INFINITY) for i in range(m[sys]) ]) for j in range(horizon)] for sys in range(sys_number)] 
+
+    # # THIS IS WRONG IT NEEDS TO BE GIVEN
+
+
+
+
+
+
+    # Computing the disturbance set
+    disturb=[list_system[system_index].W for i in range(horizon)]
+    for step in range(horizon):
+        for j in range(sys_number):
+            if j in list_system[system_index].A_ij:
+                if step==0:
+                    w= np.dot( list_system[system_index].A_ij[j], list_system[j].x_nominal[step])
+                    disturb[0].x = disturb[0].x + w
+                else:
+                    w=pp.zonotope(G= np.dot(np.dot( list_system[system_index].A_ij[j], X_i[j].G), np.diag( list_system[j].alpha_x[step-1]) ) , x= np.dot( list_system[system_index].A_ij[j], list_system[j].x_nominal[step]))
+                    disturb[step] = disturb[step]+w
+            if j in list_system[system_index].B_ij:
+                if step==0:
+                    w= np.dot( list_system[system_index].B_ij[j], list_system[j].u_nominal[step])
+                    disturb[0].x = disturb[0].x + w
+                else:
+                    w=pp.zonotope(G= np.dot(np.dot( list_system[system_index].B_ij[j], U_i[j].G), np.diag(list_system[j].alpha_u[step-1]) ) , x= np.dot( list_system[system_index].B_ij[j], list_system[j].u_nominal[step]))
+                    disturb[step]= disturb[step]+w
+
+        # Using Zonotope order reduction
+        disturb[step]= pp.boxing_order_reduction(disturb,desired_order=reduced_order)      # For now it just covers reduced_order equal to 1
+    # Note that alpha_x and alpha_u both need to have their first element be NONE
+    
+    # Creating the model
+    model = Model()
+    
+    # Definging the new disturbance as a variable
+    W_x = [np.array([ model.addVar(lb = -GRB.INFINITY) for i in range(n[system_index]) ]) for i in range(horizon)]
+    W_G = [np.array([[model.addVar(lb = -GRB.INFINITY) for i in range( disturb[i].G.shape[1] )] for j in range(n[system_index])]) for i in range(horizon)]
+    model.update()
+    
+    # Adding the constraint for disturbance: W_aug == disturb   
+    
+    # Center
+    [[model.addConstr(W_x[step][i] == disturb[step].x[i]) for i in range(n[system_index])] for step in range(horizon)]
+    
+    # Genrator
+    for step in range(horizon):
+        for i in range(n[system_index]):
+            for j in range(disturb[step].G.shape[1]):
+                if i!=j:
+                    model.addConstr(W_G[step][i][j] == disturb[step].G[i][j])
+    alpha_j_constraints=[[model.addConstr(W_G[step][i][i] == disturb[step].G[i][i]) for i in range(n[system_index]) ]  for step in range(horizon)]              # JUST FOR reduced_order=1
+
+    model.update()
+    
+    # Number of columns for T by time
+
+    dist_G_numberofcolumns=[disturb[i].G.shape[1] for i in range(horizon)]
+    if algorithm=='slow':
+        dist_G_numberofcolumns.insert(0,k)
+        p = list(accumulate(dist_G_numberofcolumns))
+
+    # Defining the rci set (zonotope(x=xbar,G=T)) and action set (zonotope(x=ubar,G=M))
+    # viable sets are zonotope(x=xbar[time],G=T[time])
+    # action sets are zonotope(x=ubar[time],G=M[time])
+    # They do not include initial position
+
+    T = [ np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k)] for j in range(n[system_index])]) for step in range(horizon)] if algorithm=='fast' \
+        else [ np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(p[step])] for j in range(n[system_index])]) for step in range(horizon)]
+
+    M = [ np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k)] for j in range(m[system_index])]) for step in range(horizon-1)] if algorithm=='fast'\
+        else [ np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(p[step])] for j in range(m[system_index])]) for step in range(horizon-1)]
+
+    xbar = [ np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(n[system_index])]) for step in range(horizon)]
+
+    ubar = [ np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(m[system_index])]) for step in range(horizon-1)]
+
+    model.update()
+    
+    # Constraint [AT+BM,W]=[T] or [0,T]
+
+    left_side = [np.concatenate (( np.dot(list_system[system_index].A,T[step]) + np.dot(list_system[system_index].B,M[step])  , W_G[step+1]) ,axis=1) for step in range(horizon-1)]
+    right_side = [np.concatenate(   ( np.zeros(W_G[step].shape) , T[step])  , axis=1) for step in range(1,horizon)] if algorithm=='slow' \
+        else [ T[step] for step in range(1,horizon)]
+
+    [model.addConstrs(   ( left_side[step][i,j] == right_side[step][i,j]  for i in range(n[system_index]) for j in range(p[step+1])   )  )  for step in range(horizon-1)]              
+    
+    # Conditions for center: A* x_bar + B* u_bar + d_bar = x_bar 
+    center = [np.dot(list_system[system_index].A , xbar[step] ) + np.dot(list_system[system_index].B , ubar[step] ) + W_x[step+1] for step in range(horizon-1)]
+    [model.addConstrs( (center[step][i] == xbar[step+1][i] for i in range(n[system_index]))) for step in range(horizon-1)]
+    
+    model.update()
+
+    # viable conditions for the first step
+
+    # Genrator
+    left_side_first_step = W_G[0]
+    right_side_first_step = T[0]
+    if k == disturb[0].shape[1]:
+        model.addConstrs(   ( left_side_first_step[i,j] == right_side_first_step[i,j]  for i in range(n[system_index]) for j in range(k)   )  )
+    elif k > disturb[0].shape[1]:
+        model.addConstrs(   ( np.concatenate( (np.zeros(n[system_index],k-disturb[0].shape[1]),left_side_first_step) ,axis=1) [i,j] == right_side_first_step[i,j]  for i in range(n[system_index]) for j in range(k)    ) )
+    else:
+        print('K is invalid')
+        raise ValueError
+    
+    # center
+    center_first_step= np.dot(list_system[system_index].A , list_system[system_index].x_nominal[0] ) + np.dot(list_system[system_index].B , list_system[system_index].u_nominal[0] ) + W_x[0]
+    model.addConstrs( (center_first_step[i] == xbar[0][i] for i in range(n[system_index]))) 
+    
+    model.update()
+
+    # Terminal constraint last_viable_set_i \subseteq omega_i
+
+    pp.zonotope_subset( model , pp.zonotope_subset( x= xbar[horizon] , G= T[horizon] ) , list_system[system_index].omega )
+
+    # Finding the Hausdurff Distances
+    x_hausdorff_result = [ parsi.hausdorff_distance_condition(model, pp.zonotope(x=xbar[step],G=T[step]) , pp.zonotope(x=list_system[system_index].x_nominal[step+1] , G=X_i[system_index].G) ,list_system[system_index].alpha_x[step]) for step in range(horizon-1) ]
+    d_x,alpha_i_x_constraints = [x_hausdorff_result[step][0] for i in range(horizon-1)] , [x_hausdorff_result[step][1] for i in range(horizon-1)]
+    
+    u_hausdorff_result = [ parsi.hausdorff_distance_condition(model, pp.zonotope(x=ubar[step],G=M[step]) , pp.zonotope(x=list_system[system_index].u_nominal[step+1] , G=U_i[system_index].G) ,list_system[system_index].alpha_u[step]) for step in range(horizon-1) ] 
+    d_u,alpha_i_u_constraints = [u_hausdorff_result[step][0] for i in range(horizon-1)] , [u_hausdorff_result[step][1] for i in range(horizon-1)]
+
+    model.setObjective( sum(d_x)+sum(d_u) , GRB.MINIMIZE )
+    model.update()
+
+    model.setParam("OutputFlag",False)
+    model.optimize()
+    #print('MODEL',model.IsMIP)
+    print('MODEL STATUS',model.Status)
+    print('OBJECTIVE FUNCTION',model.objVal)
+
+
+    # Computing the gradients of alpha_x(1,h-1) , alpha_u(1,h-1) , x_nominal(1,h-1) , u_nominal(0,h-1) 
+
+
+    grad_alpha_x_i=[]
+    grad_alpha_u_i=[]
+    grad_x_nominal=[]
+    grad_u_nominal=[]
+
+    for step in range(horizon-1):
+        grad_alpha_x_i.append([])
+        grad_alpha_u_i.append([])
+        grad_x_nominal.append([])
+        grad_u_nominal.append([])
+
+        for j in range(sys_number):
+            if j==system_index:
+                grad_alpha_x_i[step].append( np.array([alpha_i_x_constraints[step][i].pi for i in range(len(alpha_i_x_constraints[step]))] ))
+            elif not j in list_system[system_index].A_ij:
+                grad_alpha_x_i[step].append( np.zeros(list_system[j].alpha_x[step].shape[0]))
+            else:
+                grad_alpha_x_i[step].append( np.array( [sum([alpha_j_constraints[step+1][row].pi * (abs(np.dot( list_system[system_index].A_ij[j][row,:], X_i[j].G[:,i]))) \
+                                for row in range(disturb[step+1].G.shape[0])]) \
+                                for i in range(X_i[j].G.shape[1])] ))
+
+        for j in range(sys_number):
+            if j==system_index:
+                grad_alpha_u_i[step].append( np.array( [alpha_i_u_constraints[step][i].pi for i in range(len(alpha_i_u_constraints[step]))] ))
+            elif not j in list_system[system_index].B_ij:
+                grad_alpha_u_i[step].append( np.zeros(list_system[j].alpha_u[step].shape[0]))
+            else:
+                grad_alpha_u_i[step].append( np.array( [sum([alpha_j_constraints[step+1][row].pi * (abs(np.dot( list_system[system_index].B_ij[j][row,:], U_i[j].G[:,i]))) \
+                                for row in range(disturb[step+1].G.shape[0])]) \
+                                for i in range(U_i[j].G.shape[1])]) )
+    
+    T_result= [np.array([ [ T[i][j].X for j in range(k) ] for i in range(n[system_index]) ] ) for step in range(horizon)]
+    T_x_result = np.array( [ xbar[i].X for i in range(n[system_index]) ] ) 
+
+    M_result= np.array([ [ M[i][j].X for j in range(k) ] for i in range(m[system_index]) ] )
+    M_x_result = np.array( [ ubar[i].X for i in range(m[system_index]) ] ) 
+
+    potential_output={
+        'obj': model.objVal ,
+        'obj_x': d_x.X,
+        'obj_u':d_u.X,
+        'alpha_x_grad':grad_x_i,
+        'alpha_u_grad':grad_u_i,
+        'xbar':T_x_result,
+        'T':T_result,
+        'ubar':M_x_result,
+        'M':M_result
+    }
+
+    return potential_output
+
