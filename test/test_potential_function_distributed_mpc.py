@@ -60,7 +60,7 @@ for sys in sub_sys:
 
     # Initializing x_nominal and u_nominal
     sys.x_nominal = np.array([ np.random.rand(2) for step in range(horizon)])
-    sys.x_nominal[0] = np.array([5,5])
+    sys.x_nominal[0] = np.array([5,2])
     sys.u_nominal = np.array([ np.random.rand(1) for step in range(horizon)])
 
     # sys.x_nominal = [ np.zeros(n) for step in range(horizon)]
@@ -84,7 +84,7 @@ for i in range(number_of_subsystems):
     pp.visualize([sub_sys[i].omega,*sub_sys[i].viable], ax = axs[i],fig=fig, title='',equal_axis=True)
     print('sub_sys[i].viable[step].x',sub_sys[i].viable[1].x,sub_sys[i].viable[1].x.shape)
 
-    path = np.array( [ sub_sys[i].viable[step].x for step in range(horizon-1)] )
+    path = np.array( [ sub_sys[i].viable[step].x for step in range(horizon)] )
     print('path shape',path.shape)
 
     path = np.concatenate( ( sub_sys[i].x_nominal[0].reshape(1,2) , path ) ,axis=0)
