@@ -635,6 +635,10 @@ def potential_function_mpc(list_system, system_index, T_order=3, reduced_order=1
     pp.zonotope_subset( model , pp.zonotope( x= xbar[horizon-1] , G= T[horizon-1] ) , list_system[system_index].omega , solver='gurobi')
     model.update()
 
+    # Hard constraint over control input
+    [ pp.zonotope_subset( model , pp.zonotope(x=ubar[step],G=M[step])  , list_system[system_index].U , solver='gurobi' ) for step in range(horizon-1)]
+    ######### for first u_nominal
+
     # Finding the Hausdurff Distances
     x_hausdorff_result = [ parsi.hausdorff_distance_condition(model, pp.zonotope(x=xbar[step],G=T[step]) , pp.zonotope(x=x_nominal[system_index][step+1] , G=X_i[system_index].G) ,list_system[system_index].alpha_x[step]) for step in range(horizon-1) ]
     d_x,alpha_i_x_constraints = [x_hausdorff_result[step][0] for step in range(horizon-1)] , [x_hausdorff_result[step][1] for step in range(horizon-1)]
@@ -648,7 +652,7 @@ def potential_function_mpc(list_system, system_index, T_order=3, reduced_order=1
     model.setParam("OutputFlag",False)
     model.optimize()
     #print('MODEL',model.IsMIP)
-    # print('MODEL STATUS',model.Status)
+    print('MODEL STATUS',model.Status)
     # print('OBJECTIVE FUNCTION',model.objVal)
 
 

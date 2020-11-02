@@ -500,13 +500,12 @@ def compositional_synthesis(list_system,horizon,initial_order=2,step_size=0.1,al
         objective_function_previous=objective_function
         objective_function=sum([subsystems_output[i]['obj'] for i in range(len(list_system)) ])
 
-        print('objective function',objective_function)
 
         if objective_function==0:
             for i in range(len(list_system)):
                 list_system[i].viable = [ pp.zonotope(G=subsystems_output[i]['T'][step],x=subsystems_output[i]['xbar'][step]) for step in range(horizon)]
                 list_system[i].action = [ pp.zonotope(G=subsystems_output[i]['M'][step],x=subsystems_output[i]['ubar'][step]) for step in range(horizon-1)]
-
+                
             return [i.viable for i in list_system],[i.action for i in list_system]
 
         else:
