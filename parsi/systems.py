@@ -57,6 +57,11 @@ class Linear_system:
         self.alpha_u=None               # The parameters for the paramterized set in control space, which is useful in compositional approach in finding decentralized rci sets
         self.alpha_x_max=None               # allowable maximum amount of alpha_x 
         self.alpha_u_max=None               # allowable maximum amount of alpha_u
+        self.x_nominal=None             # The nominal trajectory in mpc 
+        self.u_nominal=None             # The nominal control input in mpc
+        self.viable=None                # The sequence of viable sets for mpc
+        self.action=None                # The sequence of action sets for mpc
+
 
     def __repr__(self):
         return self.sys

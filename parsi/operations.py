@@ -473,3 +473,75 @@ def shrinking_rci(list_system,reduced_order=2,order_reduction_method='pca'):
             system.omega,_ = rci(system,order_max=100,size='min',obj='include_center')
             print('system',system.omega.G)
     return [i.omega for i in list_system]
+
+
+def compositional_synthesis(list_system,horizon,initial_order=2,step_size=0.1,alpha_0='random',order_max=100,algorithm='slow'):
+
+
+    # IT DOES NOT CONSIDER MAPING TO alpha_max REGION. THE SAME FOR CENTERS!
+    
+    # Initialization of alpha_x and alpha_x and x_nominal and u_nominal
+
+    # if alpha_0=='random':
+    #     for i in list_system:
+    #         i.alpha_x=np.dot( np.random.rand(len(i.alpha_x_max)) , np.diag(i.alpha_x_max) )
+    #         i.alpha_u=np.dot(np.random.rand(len(i.alpha_u_max)) , np.diag(i.alpha_u_max) )
+    #         i.mapping_alpha_to_feasible_set()
+
+
+    order = initial_order
+    objective_function=1
+    objective_function_previous=2
+    iteration=0
+
+    while objective_function>0 or iteration<10000 or order==order_max:
+        
+        subsystems_output = [ parsi.potential_function_mpc(list_system, system_index, T_order=order, reduced_order=1,algorithm=algorithm) for system_index in range(len(list_system)) ]
+        objective_function_previous=objective_function
+        objective_function=sum([subsystems_output[i]['obj'] for i in range(len(list_system)) ])
+
+        print('objective function',objective_function)
+
+        if objective_function==0:
+            for i in range(len(list_system)):
+                list_system[i].viable = [ pp.zonotope(G=subsystems_output[i]['T'][step],x=subsystems_output[i]['xbar'][step]) for step in range(horizon)]
+                list_system[i].action = [ pp.zonotope(G=subsystems_output[i]['M'][step],x=subsystems_output[i]['ubar'][step]) for step in range(horizon-1)]
+
+            return [i.viable for i in list_system],[i.action for i in list_system]
+
+        else:
+
+            for i in range(len(list_system)):
+
+                # gradients
+
+                grad_alphax = sum([subsystems_output[j]['alpha_alpha_x_grad'][:,i] for j in range(len(list_system))])
+                grad_alphau = sum([subsystems_output[j]['alpha_alpha_u_grad'][:,i] for j in range(len(list_system))])
+
+                grad_x = sum([subsystems_output[j]['x_nominal_grad'][:,i] for j in range(len(list_system))])
+                grad_u = sum([subsystems_output[j]['u_nominal_grad'][:,i] for j in range(len(list_system))])
+
+                # gradient descent 
+                list_system[i].alpha_x = list_system[i].alpha_x - step_size * grad_alphax
+                list_system[i].alpha_u = list_system[i].alpha_u - step_size * grad_alphau
+
+                list_system[i].x_nominal[1:] = list_system[i].x_nominal[1:] - step_size * grad_x
+                list_system[i].u_nominal = list_system[i].u_nominal - step_size * grad_u
+
+
+
+                ######################################## Mapping the removed temperarly
+                # list_system[i].mapping_alpha_to_feasible_set()
+
+
+                
+
+        if abs(objective_function - objective_function_previous)< 10**(-2):
+            order=order+1
+            step_size=step_size+0.1
+            print('order',order)
+            print('step size',step_size)
+
+        iteration += 1
+        print('objective_function',objective_function)
+    return objective_function

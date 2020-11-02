@@ -257,6 +257,7 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
             (3)the gradients of (1) with respect to alpha_x
             (4)the gradients of (2) with respect to alpha_u
     """
+    from copy import copy,deepcopy
     from itertools import accumulate
     sys_number = len(list_system)
     n=[list_system[i].A.shape[0] for i in range(sys_number)]
@@ -271,7 +272,7 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
         U_i=[sys.theta for sys in list_system]
 
     # Computing the disturbance set
-    disturb=list_system[system_index].W
+    disturb = deepcopy( list_system[system_index].W )
     for j in range(sys_number):
         if j in list_system[system_index].A_ij:
             w=pp.zonotope(G= np.dot(np.dot( list_system[system_index].A_ij[j], X_i[j].G), np.diag( list_system[j].alpha_x) ) , x= np.dot( list_system[system_index].A_ij[j], X_i[j].x))
@@ -387,7 +388,9 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
         'ubar':M_x_result,
         'M':M_result
     }
-
+    
+    del model
+    
     return potential_output
 
 
@@ -464,7 +467,7 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
 
 
 # the potential function for coupled LTI subsystems. MPC strating from a given point and ending up inside rci set.
-def potential_function_distributed_mpc(list_system, system_index,horizon, T_order=3, reduced_order=1,algorithm='slow'):
+def potential_function_mpc(list_system, system_index, T_order=3, reduced_order=1,algorithm='slow'):
     """
     The state (system.state) and rci set (system.omega) needs to be initialized prior to using this function.
     The same is true for alpha_x and alpha_u (system.alpha_x, system.alpha_u)
@@ -482,8 +485,9 @@ def potential_function_distributed_mpc(list_system, system_index,horizon, T_orde
             (4)the gradients of (2) with respect to alpha_u , does not include time 0
             (5)the gradients with respect to centers of assumptions for both state (does not include time 0) and control inputs (does include time 0)
     """
-
+    from copy import copy,deepcopy
     from itertools import accumulate
+    horizon = len(list_system[system_index].x_nominal)
     sys_number = len(list_system)
     n=[list_system[i].A.shape[0] for i in range(sys_number)]
     m=[list_system[i].B.shape[1] for i in range(sys_number)]
@@ -518,13 +522,13 @@ def potential_function_distributed_mpc(list_system, system_index,horizon, T_orde
 
     model.update()
 
-    x_i_nominal_constraints = [[[model.addConstr( x_nominal == list_system[sys].x_nominal) for i in range(n[sys])] for step in range(horizon)] for sys in range(sys_number)] 
-    u_i_nominal_constraints = [[[model.addConstr( u_nominal == list_system[sys].u_nominal) for i in range(m[sys])] for step in range(horizon)] for sys in range(sys_number)]
+    x_i_nominal_constraints = [[[model.addConstr( x_nominal[sys][step][i] == list_system[sys].x_nominal[step][i]) for i in range(n[sys])] for step in range(horizon)] for sys in range(sys_number)] 
+    u_i_nominal_constraints = [[[model.addConstr( u_nominal[sys][step][i] == list_system[sys].u_nominal[step][i]) for i in range(m[sys])] for step in range(horizon)] for sys in range(sys_number)]
     
     model.update()
 
     # Computing the disturbance set
-    disturb=[list_system[system_index].W for i in range(horizon)]
+    disturb=[deepcopy(list_system[system_index].W) for i in range(horizon)]
     for step in range(horizon):
         for j in range(sys_number):
             if j in list_system[system_index].A_ij:
@@ -543,7 +547,7 @@ def potential_function_distributed_mpc(list_system, system_index,horizon, T_orde
                     disturb[step]= disturb[step]+w
 
         # Using Zonotope order reduction
-        disturb[step]= pp.boxing_order_reduction(disturb,desired_order=reduced_order)      # For now it just covers reduced_order equal to 1
+        disturb[step]= pp.boxing_order_reduction(disturb[step],desired_order=reduced_order)      # For now it just covers reduced_order equal to 1
     # Note that alpha_x and alpha_u both need to have their first element be NONE
 
 
@@ -555,6 +559,8 @@ def potential_function_distributed_mpc(list_system, system_index,horizon, T_orde
     # Adding the constraint for disturbance: W_aug == disturb   
     
     # Center
+    # print('W_x',[W_x[step][i] for i in range(n[system_index]) for step in range(horizon)])
+    # print('disturb[step].x[i]',[disturb[step].x[i] for i in range(n[system_index]) for step in range(horizon)])
     [[model.addConstr(W_x[step][i] == disturb[step].x[i]) for i in range(n[system_index])] for step in range(horizon)]
     
     # Genrator
@@ -594,10 +600,10 @@ def potential_function_distributed_mpc(list_system, system_index,horizon, T_orde
     # Constraint [AT+BM,W]=[T] or [0,T]
 
     left_side = [np.concatenate (( np.dot(list_system[system_index].A,T[step]) + np.dot(list_system[system_index].B,M[step])  , W_G[step+1]) ,axis=1) for step in range(horizon-1)]
-    right_side = [np.concatenate(   ( np.zeros(W_G[step].shape) , T[step])  , axis=1) for step in range(1,horizon)] if algorithm=='slow' \
+    right_side = [np.concatenate(   ( np.zeros(W_G[step].shape) , T[step])  , axis=1) for step in range(1,horizon)] if algorithm=='fast' \
         else [ T[step] for step in range(1,horizon)]
 
-    [model.addConstrs(   ( left_side[step][i,j] == right_side[step][i,j]  for i in range(n[system_index]) for j in range(p[step+1])   )  )  for step in range(horizon-1)]              
+    [model.addConstrs(   ( left_side[step][i,j] == right_side[step][i,j]  for i in range(n[system_index]) for j in range(len(right_side[step][0]))   )  )  for step in range(horizon-1)]              
     
     # Conditions for center: A* x_bar + B* u_bar + d_bar = x_bar 
     center = [np.dot(list_system[system_index].A , xbar[step] ) + np.dot(list_system[system_index].B , ubar[step] ) + W_x[step+1] for step in range(horizon-1)]
@@ -610,10 +616,10 @@ def potential_function_distributed_mpc(list_system, system_index,horizon, T_orde
     # Genrator
     left_side_first_step = W_G[0]
     right_side_first_step = T[0]
-    if k == disturb[0].shape[1]:
+    if k == disturb[0].G.shape[1]:
         model.addConstrs(   ( left_side_first_step[i,j] == right_side_first_step[i,j]  for i in range(n[system_index]) for j in range(k)   )  )
-    elif k > disturb[0].shape[1]:
-        model.addConstrs(   ( np.concatenate( (np.zeros(n[system_index],k-disturb[0].shape[1]),left_side_first_step) ,axis=1) [i,j] == right_side_first_step[i,j]  for i in range(n[system_index]) for j in range(k)    ) )
+    elif k > disturb[0].G.shape[1]:
+        model.addConstrs(   ( np.concatenate( (np.zeros( (n[system_index],k-disturb[0].G.shape[1]) ),left_side_first_step) ,axis=1) [i,j] == right_side_first_step[i,j]  for i in range(n[system_index]) for j in range(k)    ) )
     else:
         print('K is invalid')
         raise ValueError
@@ -625,16 +631,16 @@ def potential_function_distributed_mpc(list_system, system_index,horizon, T_orde
     model.update()
 
     # Terminal constraint last_viable_set_i \subseteq omega_i
-
-    pp.zonotope_subset( model , pp.zonotope_subset( x= xbar[horizon] , G= T[horizon] ) , list_system[system_index].omega )
+    ############### IT MAY MAKE THE WHOLE OPTIMIZATION PROBLEM INFEASIBLE
+    pp.zonotope_subset( model , pp.zonotope( x= xbar[horizon-1] , G= T[horizon-1] ) , list_system[system_index].omega , solver='gurobi')
     model.update()
 
     # Finding the Hausdurff Distances
     x_hausdorff_result = [ parsi.hausdorff_distance_condition(model, pp.zonotope(x=xbar[step],G=T[step]) , pp.zonotope(x=x_nominal[system_index][step+1] , G=X_i[system_index].G) ,list_system[system_index].alpha_x[step]) for step in range(horizon-1) ]
-    d_x,alpha_i_x_constraints = [x_hausdorff_result[step][0] for i in range(horizon-1)] , [x_hausdorff_result[step][1] for i in range(horizon-1)]
+    d_x,alpha_i_x_constraints = [x_hausdorff_result[step][0] for step in range(horizon-1)] , [x_hausdorff_result[step][1] for step in range(horizon-1)]
     
     u_hausdorff_result = [ parsi.hausdorff_distance_condition(model, pp.zonotope(x=ubar[step],G=M[step]) , pp.zonotope(x=u_nominal[system_index][step+1] , G=U_i[system_index].G) ,list_system[system_index].alpha_u[step]) for step in range(horizon-1) ] 
-    d_u,alpha_i_u_constraints = [u_hausdorff_result[step][0] for i in range(horizon-1)] , [u_hausdorff_result[step][1] for i in range(horizon-1)]
+    d_u,alpha_i_u_constraints = [u_hausdorff_result[step][0] for step in range(horizon-1)] , [u_hausdorff_result[step][1] for step in range(horizon-1)]
 
     model.setObjective( sum(d_x)+sum(d_u) , GRB.MINIMIZE )
     model.update()
@@ -642,8 +648,8 @@ def potential_function_distributed_mpc(list_system, system_index,horizon, T_orde
     model.setParam("OutputFlag",False)
     model.optimize()
     #print('MODEL',model.IsMIP)
-    print('MODEL STATUS',model.Status)
-    print('OBJECTIVE FUNCTION',model.objVal)
+    # print('MODEL STATUS',model.Status)
+    # print('OBJECTIVE FUNCTION',model.objVal)
 
 
     # Computing the gradients of alpha_x(1,h-1) , alpha_u(1,h-1) , x_nominal(1,h-1) , u_nominal(0,h-1) 
@@ -651,7 +657,7 @@ def potential_function_distributed_mpc(list_system, system_index,horizon, T_orde
 
     grad_alpha_x_i=[]
     grad_alpha_u_i=[]
-    grad_x_nominal=[]
+    grad_x_nominal=[]              # The gradient of the first step is not computed because the first step is considered to be x0 which is given
     grad_u_nominal=[]
 
     for step in range(horizon-1):
@@ -661,7 +667,7 @@ def potential_function_distributed_mpc(list_system, system_index,horizon, T_orde
         grad_u_nominal.append([])
 
         for j in range(sys_number):
-
+            
             grad_x_nominal[step].append( np.array([ x_i_nominal_constraints[j][step+1][i].pi for i in range(n[j]) ]) )
 
             if j==system_index:
@@ -686,27 +692,29 @@ def potential_function_distributed_mpc(list_system, system_index,horizon, T_orde
                                 for row in range(disturb[step+1].G.shape[0])]) \
                                 for i in range(U_i[j].G.shape[1])]) )
 
-    grad_u_nominal.append( [ np.array([ u_i_nominal_constraints[j][horizon][i].pi for i in range(m[j]) ])  for j in range(sys_number)])
+    grad_u_nominal.append( [ np.array([ u_i_nominal_constraints[j][horizon-1][i].pi for i in range(m[j]) ])  for j in range(sys_number)])
 
 
     T_result = [ np.array([ [ T[step][i][j].X for j in range(k) ] for i in range(n[system_index]) ] ) for step in range(horizon)] if algorithm=='fast' \
         else [ np.array([ [ T[step][i][j].X for j in range(p[step]) ] for i in range(n[system_index]) ] ) for step in range(horizon)]
     T_x_result = [ np.array( [ xbar[step][i].X for i in range(n[system_index]) ] ) for step in range(horizon)] 
 
-    M_result = [ np.array([ [ M[i][j].X for j in range(k) ] for i in range(m[system_index]) ] ) for step in range(horizon-1)]
-    M_x_result = [ np.array( [ ubar[i].X for i in range(m[system_index]) ] ) for step in range(horizon-1)]
+    M_result = [ np.array([ [ M[step][i][j].X for j in range(k) ] for i in range(m[system_index]) ] ) for step in range(horizon-1)]
+    M_x_result = [ np.array( [ ubar[step][i].X for i in range(m[system_index]) ] ) for step in range(horizon-1)]
+    
 
     potential_output = {
         'obj' : model.objVal ,
-        'alpha_alpha_x_grad' : grad_alpha_x_i,
-        'alpha_alpha_u_grad' : grad_alpha_u_i,
-        'x_nominal_grad' : grad_x_nominal,
-        'u_nominal_grad' : grad_u_nominal,
+        'alpha_alpha_x_grad' : np.array(grad_alpha_x_i),
+        'alpha_alpha_u_grad' : np.array(grad_alpha_u_i),
+        'x_nominal_grad' : np.array(grad_x_nominal),
+        'u_nominal_grad' : np.array(grad_u_nominal),
         'xbar' : T_x_result,
         'T' : T_result,
         'ubar' : M_x_result,
         'M' : M_result
     }
+    del model
 
     return potential_output
 
