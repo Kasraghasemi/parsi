@@ -552,8 +552,8 @@ def potential_function_mpc(list_system, system_index, T_order=3, reduced_order=1
 
 
     # Definging the new disturbance as a variable
-    W_x = [np.array([ model.addVar(lb = -GRB.INFINITY) for i in range(n[system_index]) ]) for i in range(horizon)]
-    W_G = [np.array([[model.addVar(lb = -GRB.INFINITY) for i in range( disturb[i].G.shape[1] )] for j in range(n[system_index])]) for i in range(horizon)]
+    W_x = [np.array([ model.addVar(lb = -GRB.INFINITY) for i in range(n[system_index]) ]) for step in range(horizon)]
+    W_G = [np.array([[model.addVar(lb = -GRB.INFINITY) for i in range( disturb[step].G.shape[1] )] for j in range(n[system_index])]) for step in range(horizon)]
     model.update()
     
     # Adding the constraint for disturbance: W_aug == disturb   

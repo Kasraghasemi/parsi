@@ -112,7 +112,7 @@ def viable_limited_time(system,order_max=10,size='min',obj='include_center',algo
     return None,None
 
 
-def sub_systems(system,partition_A,partition_B,disturbance=True):
+def sub_systems(system,partition_A,partition_B,disturbance=True , admissible_x=True , admissible_u=True ):
     """
     The input is a large system and partition over system.A 
     example: [2,3,1] creates A_{11}=2*2, A_{22}=3*3, and A_{33}=1*1
@@ -128,8 +128,15 @@ def sub_systems(system,partition_A,partition_B,disturbance=True):
     A=[[ system.A[par_accum_A[i]:par_accum_A[i+1] , par_accum_A[j]:par_accum_A[j+1]] for i in range(number_of_subsys)] for j in range(number_of_subsys)]
     B=[[ system.B[par_accum_A[i]:par_accum_A[i+1] , par_accum_B[j]:par_accum_B[j+1]] for i in range(number_of_subsys)] for j in range(number_of_subsys)]
 
-    X=pp.decompose(system.X,partition_A)
-    U=pp.decompose(system.U,partition_B)
+    if admissible_x==True:
+        X=pp.decompose(system.X,partition_A)
+    else:
+        X = admissible_x
+    
+    if admissible_u==True:
+        U=pp.decompose(system.U,partition_B)
+    else:
+        U = admissible_u
 
     #Right now, it just covers disturbances with order 1
     if disturbance==True:
@@ -475,7 +482,7 @@ def shrinking_rci(list_system,reduced_order=2,order_reduction_method='pca'):
     return [i.omega for i in list_system]
 
 
-def compositional_synthesis(list_system,horizon,initial_order=2,step_size=0.1,alpha_0='random',order_max=100,algorithm='slow'):
+def compositional_synthesis( list_system , horizon , initial_order=2 , step_size=0.1 , order_max=100 , algorithm='slow' ):
 
 
     # IT DOES NOT CONSIDER MAPING TO alpha_max REGION. THE SAME FOR CENTERS!
@@ -503,10 +510,13 @@ def compositional_synthesis(list_system,horizon,initial_order=2,step_size=0.1,al
 
         if objective_function==0:
             for i in range(len(list_system)):
+                
+                # viable set is one more because of the last one
+
                 list_system[i].viable = [ pp.zonotope(G=subsystems_output[i]['T'][step],x=subsystems_output[i]['xbar'][step]) for step in range(horizon)]
                 list_system[i].action = [ pp.zonotope(G=subsystems_output[i]['M'][step],x=subsystems_output[i]['ubar'][step]) for step in range(horizon-1)]
-                
-            return [i.viable for i in list_system],[i.action for i in list_system]
+
+            return [ i.u_nominal[0] for i in list_system] , [i.viable for i in list_system] , [i.action for i in list_system]
 
         else:
 
@@ -544,3 +554,24 @@ def compositional_synthesis(list_system,horizon,initial_order=2,step_size=0.1,al
         iteration += 1
         print('objective_function',objective_function)
     return objective_function
+
+
+
+def compositional_mpc_initialization(list_system):
+    """
+    
+    """
+    for sys in list_system:
+
+        sys.x_nominal[0] = sys.state
+        sys.x_nominal = np.delete( sys.x_nominal , 1 ,axis=0)
+        sys.x_nominal = np.concatenate( ( sys.x_nominal , sys.omega.reshape(1,-1) ) , axis = 0)
+
+        sys.u_nominal = np.delete( sys.u_nominal , 0 ,axis=0)
+        sys.u_nominal = np.concatenate( ( sys.u_nominal , sys.theta.reshape(1,-1) ) , axis = 0)
+
+        sys.alpha_x.pop(0)
+        sys.alpha_x = sys.alpha_x.append( np.ones( sys.A.shape[0] ) )
+
+        sys.alpha_u.pop(0)
+        sys.alpha_u = sys.alpha_u.append( np.ones( sys.B.shape[1] ) )
