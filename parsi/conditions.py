@@ -528,19 +528,19 @@ def potential_function_mpc(list_system, system_index, T_order=3, reduced_order=1
     model.update()
 
     # Computing the disturbance set
-    disturb=[deepcopy(list_system[system_index].W) for i in range(horizon)]
+    disturb=[ deepcopy(list_system[system_index].W) for i in range(horizon)]
     for step in range(horizon):
         for j in range(sys_number):
             if j in list_system[system_index].A_ij:
                 if step==0:
-                    w= np.dot( list_system[system_index].A_ij[j], x_nominal[j][step])
+                    w= np.dot( list_system[system_index].A_ij[j], x_nominal[j][0])
                     disturb[0].x = disturb[0].x + w
                 else:
                     w=pp.zonotope(G= np.dot(np.dot( list_system[system_index].A_ij[j], X_i[j].G), np.diag( list_system[j].alpha_x[step-1]) ) , x= np.dot( list_system[system_index].A_ij[j], x_nominal[j][step]))
                     disturb[step] = disturb[step]+w
             if j in list_system[system_index].B_ij:
                 if step==0:
-                    w= np.dot( list_system[system_index].B_ij[j], u_nominal[j][step])
+                    w= np.dot( list_system[system_index].B_ij[j], u_nominal[j][0])
                     disturb[0].x = disturb[0].x + w
                 else:
                     w=pp.zonotope(G= np.dot(np.dot( list_system[system_index].B_ij[j], U_i[j].G), np.diag(list_system[j].alpha_u[step-1]) ) , x= np.dot( list_system[system_index].B_ij[j], u_nominal[j][step]))
@@ -625,8 +625,8 @@ def potential_function_mpc(list_system, system_index, T_order=3, reduced_order=1
         raise ValueError
     
     # center
-    center_first_step= np.dot(list_system[system_index].A , x_nominal[system_index][0] ) + np.dot(list_system[system_index].B , u_nominal[system_index][0] ) + W_x[0]
-    model.addConstrs( (center_first_step[i] == xbar[0][i] for i in range(n[system_index]))) 
+    center_first_step= np.dot( list_system[system_index].A , x_nominal[system_index][0] ) + np.dot( list_system[system_index].B , u_nominal[system_index][0] ) + W_x[0]
+    model.addConstrs( xbar[0][i] == center_first_step[i] for i in range(n[system_index]) ) 
     
     model.update()
 
@@ -703,7 +703,8 @@ def potential_function_mpc(list_system, system_index, T_order=3, reduced_order=1
         else [ np.array([ [ T[step][i][j].X for j in range(p[step]) ] for i in range(n[system_index]) ] ) for step in range(horizon)]
     T_x_result = [ np.array( [ xbar[step][i].X for i in range(n[system_index]) ] ) for step in range(horizon)] 
 
-    M_result = [ np.array([ [ M[step][i][j].X for j in range(k) ] for i in range(m[system_index]) ] ) for step in range(horizon-1)]
+    M_result = [ np.array([ [ M[step][i][j].X for j in range(k) ] for i in range(m[system_index]) ] ) for step in range(horizon-1)] if algorithm=='fast' \
+        else [ np.array([ [ M[step][i][j].X for j in range(p[step]) ] for i in range(m[system_index]) ] ) for step in range(horizon-1)]
     M_x_result = [ np.array( [ ubar[step][i].X for i in range(m[system_index]) ] ) for step in range(horizon-1)]
     
 

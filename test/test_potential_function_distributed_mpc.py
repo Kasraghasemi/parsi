@@ -22,7 +22,7 @@ control_size = 2
 n=2*number_of_subsystems
 m=1*number_of_subsystems
 
-np.random.seed(seed=2)
+# np.random.seed(seed=2)
 A=np.random.rand(n,n)* landa
 # B=np.random.rand(n,m)* landa
 # A=np.zeros((n,n))
@@ -82,7 +82,7 @@ for sys in sub_sys:
 
 # potential_result = parsi.potential_function_mpc(sub_sys, 0 , T_order=10, reduced_order=1,algorithm='fast')
 
-parsi.compositional_synthesis(sub_sys,horizon,initial_order=4,step_size=0.1 ,order_max=100,algorithm='fast')
+parsi.compositional_synthesis(sub_sys,horizon,initial_order=4,step_size=0.1 ,order_max=100,algorithm='slow')
 
 
 # Plotting the results
@@ -104,7 +104,7 @@ for i in range(number_of_subsystems):
 
     # drawing the parameterized sets
     for step in range(1,horizon):
-        pp.visualize( [ pp.zonotope( G= np.dot( sub_sys[i].omega.G , np.diag( sub_sys[i].alpha_x[step-1]) ) ,  x= sub_sys[i].x_nominal[step] , color = 'yellow') ] , ax = axs[i] ,title='')
+        pp.visualize( [ pp.zonotope( G= np.dot( sub_sys[i].omega.G , np.diag( sub_sys[i].alpha_x[step-1]) ) ,  x= sub_sys[i].x_nominal[step] , color = 'yellow') ] , ax = axs[i] ,title='' , equal_axis=True)
 
 
 # Showing an actual tokken path
@@ -126,11 +126,6 @@ for step in range(horizon):
 
 
 plt.show()
-
-
-
-
-
 
 
 
