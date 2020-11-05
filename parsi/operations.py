@@ -565,13 +565,14 @@ def compositional_mpc_initialization(list_system):
 
         sys.x_nominal[0] = sys.state
         sys.x_nominal = np.delete( sys.x_nominal , 1 ,axis=0)
-        sys.x_nominal = np.concatenate( ( sys.x_nominal , sys.omega.reshape(1,-1) ) , axis = 0)
+        sys.x_nominal = np.concatenate( ( sys.x_nominal , sys.omega.x.reshape(1,-1) ) , axis = 0)
 
         sys.u_nominal = np.delete( sys.u_nominal , 0 ,axis=0)
-        sys.u_nominal = np.concatenate( ( sys.u_nominal , sys.theta.reshape(1,-1) ) , axis = 0)
+        sys.u_nominal = np.concatenate( ( sys.u_nominal , sys.theta.x.reshape(1,-1) ) , axis = 0)
 
-        sys.alpha_x.pop(0)
-        sys.alpha_x = sys.alpha_x.append( np.ones( sys.A.shape[0] ) )
 
-        sys.alpha_u.pop(0)
-        sys.alpha_u = sys.alpha_u.append( np.ones( sys.B.shape[1] ) )
+        sys.alpha_x = np.delete( sys.alpha_x , 0 , axis=0 )
+        sys.alpha_x = np.concatenate( (sys.alpha_x , np.ones(sys.omega.G.shape[1]).reshape(1,-1) ) , axis=0)
+
+        sys.alpha_u = np.delete( sys.alpha_u , 0 , axis=0 )
+        sys.alpha_u = np.concatenate( (sys.alpha_u , np.ones(sys.theta.G.shape[1]).reshape(1,-1) ) , axis=0)

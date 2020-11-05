@@ -15,14 +15,14 @@ except:
 
 landa = 0.01                # coupling strength
 delta = 1               # time step
-number_of_subsystems= 4             # number of subsystems
+number_of_subsystems= 3             # number of subsystems
 disturb = 0.1
 control_size = 2
 
 n=2*number_of_subsystems
 m=1*number_of_subsystems
 
-# np.random.seed(seed=2)
+np.random.seed(seed=2)
 A=np.random.rand(n,n)* landa
 # B=np.random.rand(n,m)* landa
 # A=np.zeros((n,n))
@@ -82,7 +82,7 @@ for sys in sub_sys:
 
 # potential_result = parsi.potential_function_mpc(sub_sys, 0 , T_order=10, reduced_order=1,algorithm='fast')
 
-parsi.compositional_synthesis(sub_sys,horizon,initial_order=4,step_size=0.1 ,order_max=100,algorithm='slow')
+parsi.compositional_synthesis(sub_sys,horizon,initial_order=4,step_size=0.1 ,order_max=100,algorithm='fast')
 
 
 # Plotting the results
@@ -129,4 +129,6 @@ plt.show()
 
 
 
-# parsi.compositional_mpc_initialization(list_system)
+parsi.compositional_mpc_initialization(sub_sys)
+
+parsi.compositional_synthesis(sub_sys,horizon,initial_order=5,step_size=0.3 ,order_max=100,algorithm='fast')
