@@ -536,7 +536,7 @@ def compositional_synthesis( list_system , horizon , initial_order=2 , step_size
 
                 list_system[i].x_nominal[1:] = list_system[i].x_nominal[1:] - step_size * grad_x
                 list_system[i].u_nominal = list_system[i].u_nominal - step_size * grad_u
-
+                
 
 
                 ######################################## Mapping the removed temperarly
@@ -547,9 +547,9 @@ def compositional_synthesis( list_system , horizon , initial_order=2 , step_size
 
         if abs(objective_function - objective_function_previous)< 10**(-2):
             order=order+1
-            step_size=step_size+0.1
+            # step_size=step_size+0.1
             print('order',order)
-            print('step size',step_size)
+            # print('step size',step_size)
 
         iteration += 1
         print('objective_function',objective_function)
