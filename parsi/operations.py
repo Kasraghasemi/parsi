@@ -281,8 +281,16 @@ def decentralized_rci_centralized_gurobi(list_system,initial_guess='nominal',siz
         xbar,T,ubar,M, alpha_x,alpha_u= parsi.rci_decentralized_constraints_gurobi(model,list_system,T_order=order,initial_guess='nominal')
 
         # Objective function
-        obj = sum( [sum(alpha_x[i]) for i in range(number_of_subsys)] )
-        obj = obj if size=='min' else -1*obj
+        if size == 'min' or size == 'max':
+            
+            obj = sum( [sum(alpha_x[i]) for i in range(number_of_subsys)] )
+            if size == 'max':
+                obj = -1 * obj 
+
+        else:
+            # This will find the maximum alpha (it is for drawing)
+            obj = np.dot( size , np.array(alpha_x[0][0: len(size)]) )
+
         model.setObjective( obj , GRB.MINIMIZE )
         model.update()
 
@@ -312,7 +320,7 @@ def decentralized_rci_centralized_gurobi(list_system,initial_guess='nominal',siz
         return omega , theta , alfa_x , alfa_u
     
     print('Could not find any solution, you can increase order_max and try again.')
-    return None
+    return None , None , None , None
 
 
 #MPC: right now it just covers point convergence
@@ -382,7 +390,6 @@ def compositional_decentralized_rci(list_system,initial_guess='nominal',size='mi
         i.parameterized_set_initialization()
         i.set_alpha_max({'x': i.param_set_X, 'u':i.param_set_U})
     
-    
     ######################################################################################################################
     # import matplotlib.pyplot as plt
     # from math import ceil
@@ -408,6 +415,13 @@ def compositional_decentralized_rci(list_system,initial_guess='nominal',size='mi
         for i in list_system:
             i.alpha_x=np.zeros(len(i.alpha_x_max))
             i.alpha_u=np.zeros(len(i.alpha_u_max))
+           
+    
+    # for monitoring the potential function and alphas (drawing them)
+    parsi.Monitor['alpha_x'] = [ [list_system[i].alpha_x] for i in range(len(list_system)) ]
+    parsi.Monitor['potential'] = []
+
+
     # alpha_x= np.array([i.alpha_x for i in list_system]).reshape(-1)
     # alpha_u= np.array([i.alpha_u for i in list_system]).reshape(-1)
 
@@ -419,10 +433,15 @@ def compositional_decentralized_rci(list_system,initial_guess='nominal',size='mi
         subsystems_output = [ parsi.potential_function(list_system, system_index, T_order=order, reduced_order=1) for system_index in range(len(list_system)) ]
         objective_function_previous=objective_function
         objective_function=sum([subsystems_output[i]['obj'] for i in range(len(list_system)) ])
+
+        parsi.Monitor['potential'] .append(objective_function)
+
         if objective_function==0:
             for i in range(len(list_system)):
                 list_system[i].omega=pp.zonotope(G=subsystems_output[i]['T'],x=subsystems_output[i]['xbar'])
                 list_system[i].theta=pp.zonotope(G=subsystems_output[i]['M'],x=subsystems_output[i]['ubar'])
+
+            parsi.Monitor['order'] = order
 
             return [i.omega for i in list_system],[i.theta for i in list_system]
 
@@ -433,6 +452,11 @@ def compositional_decentralized_rci(list_system,initial_guess='nominal',size='mi
                 list_system[i].alpha_x = list_system[i].alpha_x - step_size * grad_x
                 list_system[i].alpha_u = list_system[i].alpha_u - step_size * grad_u
                 list_system[i].mapping_alpha_to_feasible_set()
+                
+                # this is for tracking alpha and its gradient (for drawing it)    
+                parsi.Monitor['alpha_x'][i].append(list_system[i].alpha_x)  
+                if iteration == 0 and i == 0:
+                    parsi.Monitor['gradient'] = [ subsystems_output[j]['alpha_x_grad'][i] for j in range(len(list_system)) ]
 
         if abs(objective_function - objective_function_previous)< 10**(-4):
             order=order+1
@@ -478,7 +502,7 @@ def shrinking_rci(list_system,reduced_order=2,order_reduction_method='pca'):
 
             system.X=system.omega               # this will enforce the new rci set be subset of the previous one.
             system.omega,_ = rci(system,order_max=100,size='min',obj='include_center')
-            print('system',system.omega.G)
+            
     return [i.omega for i in list_system]
 
 

@@ -12,6 +12,10 @@ try:
 except:
     print('gurobi is not installed correctly') 
 
+
+Monitor = {}
+
+
 class Linear_system:
     
     def __init__(self,A,B,W=None,X=None,U=None):
@@ -172,9 +176,3 @@ def alpha_max(inbody,circumbody,solver='gurobi'):
 
     return np.array(alpha_max)
          
-
-
-
-
-
-        
