@@ -287,9 +287,12 @@ def decentralized_rci_centralized_gurobi(list_system,initial_guess='nominal',siz
             if size == 'max':
                 obj = -1 * obj 
 
-        else:
+        elif type(size) == np.ndarray:
             # This will find the maximum alpha (it is for drawing)
             obj = np.dot( size , np.array(alpha_x[0][0: len(size)]) )
+
+        else:
+            obj = 1 
 
         model.setObjective( obj , GRB.MINIMIZE )
         model.update()
@@ -375,7 +378,7 @@ def mpc(system,horizon=1,x_desired='origin'):
         return u_mpc
 
 
-def compositional_decentralized_rci(list_system,initial_guess='nominal',size='min',initial_order=2,step_size=0.1,alpha_0='random',order_max=100):
+def compositional_decentralized_rci(list_system,initial_guess='nominal',initial_order=2,step_size=0.1,alpha_0='random',order_max=100):
     """
     This function is for compositional computation of decentralized rci sets.
     Input:  list of LTI systems

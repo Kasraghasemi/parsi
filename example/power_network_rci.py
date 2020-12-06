@@ -14,7 +14,7 @@ except:
     raise ModuleNotFoundError("parsi package is not installed properly")
 
 delta_t=2
-disturbance=0.001
+disturbance=0.002
 number_of_subsystems= 10
 Kp_i=[115]*number_of_subsystems
 Tp_i=[22]*number_of_subsystems
@@ -34,12 +34,13 @@ for i in range(number_of_subsystems):
             A_ij[j]= np.array([[0 , 0],[ delta_t*Kp_i[i]*Ks_ij[i][j]/(2*np.pi*Tp_i[i]) ,0]])
     X=pp.zonotope(x=np.zeros(2),G=np.array([[0.3,0],[0,0.3]]))
     U=pp.zonotope(x=np.zeros(1),G=np.array([[1]]))
-    W=pp.zonotope(x=np.zeros(2),G=np.array([[0.00000000000000000001],[-delta_t*Kp_i[i]/Tp_i[i]]])*disturbance )
+    W=pp.zonotope(x=np.zeros(2),G=np.array([[0.000000000000000000000001 ,0 ],[0 ,-delta_t*Kp_i[i]/Tp_i[i]]])*disturbance )
     sub_sys.append(parsi.Linear_system(A[i],B[i],W=W,X=X,U=U))
 
 #omega,theta = parsi.decentralized_rci(sub_sys,size='min')
 omega,theta=parsi.decentralized_rci(sub_sys,method='centralized',initial_guess='nominal',size='min',solver='gurobi',order_max=100)
 #omega,theta=parsi.decentralized_rci(sub_sys,method='centralized',initial_guess='nominal',size='min',solver='drake',order_max=100)
+# omega,theta=parsi.compositional_decentralized_rci(sub_sys,initial_guess='nominal',size='min',initial_order=4,step_size=0.1,alpha_0='random',order_max=100)
 
 for i in range(number_of_subsystems):
     sub_sys[i].omega=omega[i]
@@ -68,4 +69,5 @@ for step in range(50):
         axs[r,c].plot(path[2*i,:],path[2*i+1,:],color='b')
     plt.pause(0.02)
 
+plt.tight_layout()
 plt.show()  
