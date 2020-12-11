@@ -330,6 +330,9 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
 
     model.setParam("OutputFlag",False)
     model.optimize()
+
+    parsi.Monitor['time_compositional'][system_index].append( model.Runtime )
+
     #print('MODEL',model.IsMIP)
     print('MODEL STATUS',model.Status)
     #print('OBJECTIVE FUNCTION',model.objVal)

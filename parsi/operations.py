@@ -274,6 +274,8 @@ def decentralized_rci_centralized_gurobi(list_system,initial_guess='nominal',siz
     n=[len(list_system[i].A) for i in range(number_of_subsys)]
     m=[list_system[i].B.shape[1] for i in range(number_of_subsys)]
 
+    parsi.Monitor['time_centralized_decentralized'] = []
+
     for order in np.arange(1, order_max, 1/max(n)):
         
         model= Model()
@@ -300,6 +302,8 @@ def decentralized_rci_centralized_gurobi(list_system,initial_guess='nominal',siz
         # Result
         model.setParam("OutputFlag",False)
         model.optimize()
+        
+        parsi.Monitor['time_centralized_decentralized'].append( model.Runtime )
         
         if model.Status!=2:
             
@@ -378,7 +382,7 @@ def mpc(system,horizon=1,x_desired='origin'):
         return u_mpc
 
 
-def compositional_decentralized_rci(list_system,initial_guess='nominal',initial_order=2,step_size=0.1,alpha_0='random',order_max=100):
+def compositional_decentralized_rci(list_system,initial_guess='nominal',initial_order=2,step_size=0.1,alpha_0='random',order_max=100 , iteration_max=1000):
     """
     This function is for compositional computation of decentralized rci sets.
     Input:  list of LTI systems
@@ -392,6 +396,8 @@ def compositional_decentralized_rci(list_system,initial_guess='nominal',initial_
     for i in list_system:
         i.parameterized_set_initialization()
         i.set_alpha_max({'x': i.param_set_X, 'u':i.param_set_U})
+
+    parsi.Monitor['time_compositional'] = [ [] for i in range( len(list_system) ) ] 
     
     ######################################################################################################################
     # import matplotlib.pyplot as plt
@@ -431,7 +437,7 @@ def compositional_decentralized_rci(list_system,initial_guess='nominal',initial_
     objective_function=1
     objective_function_previous=2
     iteration=0
-    while objective_function>0 or iteration<10000 or order==order_max:
+    while objective_function>0 or order==order_max:
         
         subsystems_output = [ parsi.potential_function(list_system, system_index, T_order=order, reduced_order=1) for system_index in range(len(list_system)) ]
         objective_function_previous=objective_function
@@ -462,10 +468,12 @@ def compositional_decentralized_rci(list_system,initial_guess='nominal',initial_
                     parsi.Monitor['gradient'] = [ subsystems_output[j]['alpha_x_grad'][i] for j in range(len(list_system)) ]
 
         if abs(objective_function - objective_function_previous)< 10**(-4):
-            order=order+1
+
             step_size=step_size+0.1
-            print('order',order)
-            print('step size',step_size)
+            
+            if iteration == iteration_max:
+                order = order + 1
+                iteration = 0
 
         iteration += 1
         print('objective_function',objective_function)
@@ -573,7 +581,7 @@ def compositional_synthesis( list_system , horizon , initial_order=2 , step_size
                 
 
         if abs(objective_function - objective_function_previous)< 10**(-2):
-            order=order+1
+            order=order+1 ################################################################################
             # step_size=step_size+0.1
             print('order',order)
             # print('step size',step_size)

@@ -55,8 +55,10 @@ sub_sys = parsi.sub_systems( system , partition_A = [2]*number_of_subsystems , p
 ###########################################################################################################################
 # Finding decentralized rci sets
 
-omega,theta=parsi.compositional_decentralized_rci(sub_sys,initial_guess='nominal',size='min',initial_order=4,step_size=0.1,alpha_0='random',order_max=100)
-
+omega,theta=parsi.compositional_decentralized_rci(sub_sys,initial_guess='nominal',initial_order=4,step_size=0.1,alpha_0='random',order_max=100)
+# for i in range(number_of_subsystems):
+#     sub_sys[i].omega=omega[i]
+#     sub_sys[i].theta=theta[i]
 
 ################################
 print('====================================================================================')
@@ -122,8 +124,8 @@ for step in range(horizon):
 
     for i in range(number_of_subsystems):
         sub_sys[i].state=system.state[2*i:2*(i+1)]
-        # axs[i].plot(path_actual[2*i,:],path_actual[2*i+1,:],color='black')
-    # plt.pause(0.2)
+        axs[i].plot(path_actual[2*i,:],path_actual[2*i+1,:],color='black')
+    plt.pause(0.2)
 
 
 

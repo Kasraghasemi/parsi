@@ -14,9 +14,9 @@ try:
 except:
     raise ModuleNotFoundError("parsi package is not installed properly")
 
-landa = 0.1
+landa = 0.2
 delta = 0.1
-disturb= 0.5
+disturb= 0.3
 control_size = 1
 number_of_subsystems= 3
 n=2*number_of_subsystems
@@ -39,18 +39,20 @@ B=np.zeros((n,m))
 
 for i in range(number_of_subsystems): 
     A[2*i:2*(i+1),2*i:2*(i+1)]= np.array([[1,1],[0,1]]) * delta
+    # A[2*i:2*(i+1),2*i:2*(i+1)]= np.array([[1,delta],[0,1]]) 
     B[2*i:2*(i+1),i]= np.array([0,1]) * delta
 
 
 W=pp.zonotope(G=np.eye(n)*disturb,x=np.zeros(n))
-X=pp.zonotope(G=np.array(
-    [[ 1 , 0.1 , 0.2 , 0 , 0 , 0 ], 
-     [ 0.1 , 1 , 0.02 , 0 , 0 , 0.1 ], 
-     [ 0 , 0.01 , 1 , 0 , 0.1 , 0.1 ], 
-     [ 0.2 , 0 , 0.03 , 1 , 0 , 0.1 ], 
-     [ 0 , 0.1 , 0.1 , 0 , 1 , 0.2 ], 
-     [ -0.1 , -0.02 , 0.1 , 0 , 0 , 1 ]]
-),x=np.zeros(n),color='red')
+X=pp.zonotope(G=np.array([
+    [ 1 , 0.1 , 0.2 , 0 , 0 , 0 ], 
+    [ 0.1 , 1 , 0.02 , 0 , 0 , 0.1 ], 
+    [ 0 , 0.01 , 1 , 0 , 0.1 , 0.1 ], 
+    [ 0.2 , 0 , 0.03 , 1 , 0 , 0.1 ], 
+    [ 0 , 0.1 , 0.1 , 0 , 1 , 0.2 ], 
+    [ -0.1 , -0.02 , 0.1 , 0 , 0 , 1 ]
+]),x=np.zeros(n),color='red')
+
 U=pp.zonotope(G=np.eye(m)*control_size,x=np.zeros(m))
 
 w_i=pp.zonotope(G=np.eye(2)*disturb , x=np.array([0,0]))
@@ -62,6 +64,57 @@ sub_sys = parsi.sub_systems( system , partition_A = [2]*number_of_subsystems , p
 
 # for i in range(number_of_subsystems):
 #     sub_sys[i].U.G=np.array([sub_sys[i].U.G])
+
+
+
+
+
+
+
+# omega,theta = parsi.decentralized_rci(sub_sys,method='centralized',initial_guess='nominal',size='min',solver='gurobi',order_max=300)
+# print('centralizedcentralizedcentralizedcentralizedcentralizedcentralizedcentralizedcentralizedcentralizedcentralized')
+
+# # omega,theta=parsi.compositional_decentralized_rci(sub_sys,initial_guess='nominal',initial_order=4,step_size=1000,alpha_0='random',order_max=20)
+# # print('compositionalcompositionalcompositionalcompositionalcompositionalcompositionalcompositionalcompositionalcompositional')
+
+
+
+# for i in range(number_of_subsystems):
+#     sub_sys[i].omega=omega[i]
+#     sub_sys[i].theta=theta[i]
+
+#     sub_sys[i].state=parsi.sample(sub_sys[i].omega)
+
+# system.state= np.array( [sub_sys[i].state for i in range(number_of_subsystems)] ).flatten()
+# path=system.state.reshape(-1,1)
+
+
+# fig, axs = plt.subplots(3)
+# for i in range(number_of_subsystems):
+#     sub_sys[i].X.color='red'
+#     pp.visualize([sub_sys[i].X,omega[i]], ax = axs[i],fig=fig, title='',equal_axis=True)
+
+# for step in range(50):
+#     #Finding the controller
+#     u=np.array([parsi.mpc(sub_sys[i],horizon=1,x_desired='origin') for i in range(number_of_subsystems)]).flatten()
+#     state= system.simulate(u)
+#     path=np.concatenate((path,state.reshape(-1,1)) ,axis=1)
+#     for i in range(number_of_subsystems):
+#         sub_sys[i].state=system.state[2*i:2*(i+1)]
+
+#         axs[i].plot(path[2*i,:],path[2*i+1,:],color='b')
+#     plt.pause(0.02)
+# plt.show()
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -84,21 +137,27 @@ axs1[0].axis('equal')
 axs1[0].set_xlabel(r'$x_1$',FontSize=10)
 axs1[0].set_ylabel(r'$x_2$',FontSize=10,rotation=0)
 axs1[0].set_title(r'$x_1 - x_2$'  'plane')
+axs1[0].set_xlim([-2,2])
+# axs1[0].set_ylim([-2,2])
 
 pp.visualize([circumbody_2, sub_sys[1].X], ax = axs1[1],fig=fig1, title='')
 axs1[1].axis('equal')
 axs1[1].set_xlabel(r'$x_3$',FontSize=10)
 axs1[1].set_ylabel(r'$x_4$',FontSize=10,rotation=0)
 axs1[1].set_title(r'$x_3 - x_4$'  'plane')
+axs1[1].set_xlim([-2,2])
+# axs1[1].set_ylim([-2,2])
 
 pp.visualize([circumbody_3, sub_sys[2].X], ax = axs1[2],fig=fig1, title='')
 axs1[2].axis('equal')
 axs1[2].set_xlabel(r'$x_5$',FontSize=10)
 axs1[2].set_ylabel(r'$x_6$',FontSize=10,rotation=0)
 axs1[2].set_title(r'$x_5 - x_6$'  'plane')
+axs1[2].set_xlim([-2,2])
+# axs1[2].set_ylim([-2,2])
+
 plt.tight_layout()
 plt.show()
-
 
 
 
@@ -122,15 +181,16 @@ for i in range( int(360/transformation_degree +1 ) ):
         sys.theta = None
 
     c = np.dot( transformation_matrix , c )
-
+    print("i",i)
     if alfa_x != None:
         set_of_alpha.append( alfa_x[0][0:len(c)] )
 set_of_alpha = np.array(set_of_alpha)
 hull = ConvexHull( set_of_alpha )
 
+print('HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH')
 
 # finding the trajectory toward the valid set of alpha
-omega,theta=parsi.compositional_decentralized_rci(sub_sys,initial_guess='nominal',size='min',initial_order=4,step_size=0.1,alpha_0='random',order_max=20)
+omega,theta=parsi.compositional_decentralized_rci(sub_sys,initial_guess='nominal',initial_order=4,step_size= 0.1,alpha_0='random',order_max=20)
 
 
 # Drawing
@@ -140,8 +200,8 @@ ax2.set_facecolor('xkcd:salmon')
 ax2.set_facecolor((1.0, 0.47, 0.42))
 
 ax2.fill( set_of_alpha[hull.vertices,0] , set_of_alpha[hull.vertices,1] , 'green' , alpha = 0.7)
-# ax2.xlim(0,4)
-# ax2.ylim(0,4)
+# plt.xlim(0,2)
+# plt.ylim(0,2)
 plt.xlabel(r'$\alpha_1^x[1]$',FontSize=8 )
 plt.ylabel(r'$\alpha_1^x[2]$',FontSize=8,rotation=0)
 
@@ -149,11 +209,11 @@ alpha_trajectory = np.array( parsi.Monitor['alpha_x'][0] )
 print('trajectory', alpha_trajectory)
 ax2.plot( alpha_trajectory[:,0]  , alpha_trajectory[:,1] , 'blue')
 
-ax2.arrow(alpha_trajectory[0][0] , alpha_trajectory[0][1] , -0.3 *parsi.Monitor['gradient'][0][0] ,-0.4 * parsi.Monitor['gradient'][0][1] ,head_width=0.02, head_length=0.05, fc='k', ec='k' )
-ax2.arrow(alpha_trajectory[0][0] , alpha_trajectory[0][1] , - 4* parsi.Monitor['gradient'][1][0] ,- 4* parsi.Monitor['gradient'][1][1] ,head_width=0.02, head_length=0.05, fc='k', ec='k' )
-ax2.arrow(alpha_trajectory[0][0] , alpha_trajectory[0][1] , - 8* parsi.Monitor['gradient'][2][0] ,- 8* parsi.Monitor['gradient'][2][1] ,head_width=0.02, head_length=0.05, fc='k', ec='k' )
+ax2.arrow(alpha_trajectory[0][0] , alpha_trajectory[0][1] , -0.5 *parsi.Monitor['gradient'][0][0] ,-0.5 * parsi.Monitor['gradient'][0][1] ,head_width=0.02, head_length=0.05, fc='k', ec='k' )
+ax2.arrow(alpha_trajectory[0][0] , alpha_trajectory[0][1] , - 2* parsi.Monitor['gradient'][1][0] ,- 2* parsi.Monitor['gradient'][1][1] ,head_width=0.02, head_length=0.05, fc='k', ec='k' )
+ax2.arrow(alpha_trajectory[0][0] , alpha_trajectory[0][1] , - 2* parsi.Monitor['gradient'][2][0] ,- 2* parsi.Monitor['gradient'][2][1] ,head_width=0.02, head_length=0.05, fc='k', ec='k' )
 
-plt.tight_layout()
+# plt.tight_layout()
 plt.show()
 
 
@@ -165,8 +225,8 @@ plt.show()
 
 from itertools import product
 
-alpha1 = np.arange(0,4,0.1)
-alpha2 = np.arange(0,4,0.1)
+alpha1 = np.arange(0,2,0.1)
+alpha2 = np.arange(0,2,0.1)
 alpha_1_2 = list( product( alpha1 , alpha2 ) )
 
 # for i in number_of_subsystems:

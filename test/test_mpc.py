@@ -9,9 +9,9 @@ try:
 except:
     raise ModuleNotFoundError("parsi package is not installed properly")
 
-A=np.array([[1,1],[0,1]]) * 0.3
+A=np.array([[1,0.3],[0,1]]) 
 B=np.array([[0],[1]]) * 0.3
-W=pp.zonotope(G=np.eye(2),x=[0,0])*0.55
+W=pp.zonotope(G=np.eye(2),x=[0,0])*0.1
 X=pp.zonotope(G=np.eye(2),x=[0,0],color='red')
 U=pp.zonotope(G=np.eye(1),x=[0])
 
