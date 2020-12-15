@@ -15,11 +15,11 @@ except:
 
 
 
-N = 40              # number of points
+N = 5              # number of points
 raduis = 10             # threshold for being neighbor
 landa = 0.1             # affects couplings between subsystems
 delta_t = 0.2            # time step for discretizing the dynamics
-disturbance = 0.2               # inherent disturbance of each subsystems
+disturbance = 0.1               # inherent disturbance of each subsystems
 control_input = 5               # size of the admissible control input
 state_input = 10               # size of the admissible state space    
 REPEAT = 10             # Averaging the time for REPEAT number of examples
@@ -27,9 +27,10 @@ REPEAT = 10             # Averaging the time for REPEAT number of examples
 
 time_centralized_decentralized = np.zeros(REPEAT)
 time_compositional = np.zeros(REPEAT)
+time_centralized_centralized = np.zeros(REPEAT)
 
 for repeat in range(REPEAT):
-
+    print('repeat',repeat)
     ########################################################
     ######### Definging the random coupled system ##########
     ########################################################
@@ -101,7 +102,7 @@ for repeat in range(REPEAT):
     ####################### Centralized computation of Decentralized RCI sets ################################
     ##########################################################################################################
 
-    omega,theta=parsi.decentralized_rci(sub_sys,method='centralized',initial_guess='nominal',size='min',solver='gurobi',order_max=100)
+    omega,theta=parsi.decentralized_rci(sub_sys,method='centralized',solver='gurobi',order_max=100)
 
     time_centralized_decentralized[repeat] =  sum( parsi.Monitor['time_centralized_decentralized'] ) 
 
@@ -111,9 +112,9 @@ for repeat in range(REPEAT):
     ####################### Compozitional computation of Decentralized RCI sets ##############################
     ##########################################################################################################
 
-    # omega,theta=parsi.compositional_decentralized_rci(sub_sys,initial_guess='nominal',initial_order=2,step_size=0.1,alpha_0='random',order_max=100)
+    omega,theta=parsi.compositional_decentralized_rci(sub_sys , initial_order = 4 , step_size = 10 , iteration_max = 100 , order_max=100 )
 
-    # time_compositional[repeat] = sum( [ sum(parsi.Monitor['time_compositional'][i]) for i in range(len(parsi.Monitor['time_compositional'])) ] )
+    time_compositional[repeat] = sum( [ sum(parsi.Monitor['time_compositional'][i]) for i in range(len(parsi.Monitor['time_compositional'])) ] )
 
 
 
@@ -122,12 +123,42 @@ for repeat in range(REPEAT):
     ######################### Centralized computation of Centralized RCI sets ################################
     ##########################################################################################################
 
+    from scipy.linalg import block_diag
 
+    A_total = np.zeros( (2*N , 2*N) )
 
+    for i in range(N):
 
+        for j in range(N):
+            
+            if type( A.get((i,j)) ) == type( None ):
 
-# print('time_centralized_centralized',  np.mean(time_centralized_centralized) )
+                A[i,j] = np.zeros((2,2))
+            
+            A_total[2*i:2*(i+1),2*j:2*(j+1)] = A[i,j]
+
+    B_total =  block_diag( *[ B[i] for i in range(N) ] )
+
+    X_total = X
+    U_total = U
+    W_total = W
+
+    for i in range(N-1):
+        
+        X_total = X_total ** X
+        U_total = U_total ** U
+        W_total = W_total ** W
+
+    system = parsi.Linear_system( A_total , B_total , W = W_total , X = X_total , U = U_total )
+
+    omega,theta = system.rci()
+
+    time_centralized_centralized[repeat] = parsi.Monitor['time_centralized_centralized']
+    
+
+print('time_centralized_centralized',  np.mean(time_centralized_centralized) )
 print('time_centralized_decentralized', np.mean(time_centralized_decentralized))
 print('time_compositional', np.mean(time_compositional))
+
 
 
