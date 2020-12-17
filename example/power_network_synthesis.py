@@ -35,7 +35,6 @@ Ks_ij = np.array([
     [ 1 , 1 , 1 , 0 ]
 ]) * 0.01
 
-print(Ks_ij)
 
 sub_sys = []
 A,B = {},{}
@@ -58,7 +57,7 @@ for i in range(number_of_subsystems):
 
     W = pp.zonotope(x=np.zeros(2),G=np.array([[ 0.000000000000000000000000000000000000000000000000000000000001 , 0 ],[ 0 , -1 * delta_t * Kp_i[i] / Tp_i[i] ]]) * disturbance )
 
-    sub_sys.append(parsi.Linear_system(A[i],B[i],W=W,X=X,U=U))
+    sub_sys.append( parsi.Linear_system( A[i] , B[i] , W = W , X = X , U = U ) )
 
     for j in range(number_of_subsystems):
         if Ks_ij[i][j]!=0:
@@ -68,7 +67,7 @@ for i in range(number_of_subsystems):
 
 # omega,theta=parsi.decentralized_rci(sub_sys,method='centralized',initial_guess='nominal',size='min',solver='gurobi',order_max=100)
 
-omega,theta=parsi.compositional_decentralized_rci(sub_sys,initial_guess='nominal',initial_order=4,step_size=0.1,alpha_0='random',order_max=100)
+_ , _ = parsi.compositional_decentralized_rci(sub_sys,initial_guess='nominal',initial_order=8,step_size=100,alpha_0='random',order_max=20)
 
 for i in range(number_of_subsystems):
     # sub_sys[i].omega=omega[i]
@@ -83,8 +82,8 @@ fig, axs = plt.subplots(number_of_subsystems)
 for i in range(number_of_subsystems):
     sub_sys[i].X.color='red'
 
-    pp.visualize([sub_sys[i].X,omega[i]], ax = axs[i],fig=fig, title='',equal_axis=True)
-
+    pp.visualize([sub_sys[i].X,sub_sys[i].omega], ax = axs[i],fig=fig, title='',equal_axis=True)
+    
 for step in range(50):
     #Finding the controller
     u=[parsi.mpc(sub_sys[i],horizon=1,x_desired='origin') for i in range(number_of_subsystems)]
@@ -103,11 +102,13 @@ print('=========================================================================
 ###########################################################################################################################
 # Testing compistional potential function for mpc 
 
-horizon = 10
+horizon = 5
 for sys in sub_sys:
 
     # Initializing x_nominal and u_nominal
     sys.state = np.array([0,0.2])
+    sys.state = np.array([0.2,0.4])
+
 
     sys.x_nominal = np.array([ np.random.rand(2) for step in range(horizon)])
     sys.x_nominal[0] = sys.state
@@ -122,15 +123,12 @@ for sys in sub_sys:
 
 # potential_result = parsi.potential_function_mpc(sub_sys, 0 , T_order=10, reduced_order=1,algorithm='fast')
 
-parsi.compositional_synthesis(sub_sys,horizon,initial_order=4,step_size=0.01 ,order_max=100,algorithm='slow')
+parsi.compositional_synthesis( sub_sys , horizon , initial_order = 4 , step_size=0.01 , order_max=100 , algorithm='slow')
 
 
 # Plotting the results
 
 fig, axs = plt.subplots(number_of_subsystems)
-
-
-
 
 for i in range(number_of_subsystems):
     sub_sys[i].omega.color='red'
@@ -140,10 +138,18 @@ for i in range(number_of_subsystems):
 
     # drawing the parameterized sets
     for step in range(1,horizon):
-        pp.visualize( [ pp.zonotope( G= np.dot( sub_sys[i].omega.G , np.diag( sub_sys[i].alpha_x[step-1]) ) ,  x= sub_sys[i].x_nominal[step] , color = 'yellow') ] , ax = axs[i] ,title='' , equal_axis=True)
+
+        # sub_sys[i].viable[step] = pp.pca_order_reduction( sub_sys[i].viable[step] , desired_order=6 )
+
+        # assump_set = pp.pca_order_reduction( pp.zonotope( G= np.dot( sub_sys[i].omega.G , np.diag( sub_sys[i].alpha_x[step-1]) ) ,  x= sub_sys[i].x_nominal[step] , color = 'yellow') , desired_order=6 )
+
+        pp.visualize( [ pp.zonotope( G= np.dot( sub_sys[i].omega.G , np.diag( sub_sys[i].alpha_x[step-1]) ) ,  x= sub_sys[i].x_nominal[step] , color = 'yellow') ] 
+                        , ax = axs[i] , title='' , equal_axis=True
+                    )
 
     pp.visualize([sub_sys[i].omega,*sub_sys[i].viable], ax = axs[i],fig=fig, title='',equal_axis=True)
 
     axs[i].plot( path[:,0], path[:,1] ,color='b')
 
+plt.show()
 

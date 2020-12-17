@@ -44,7 +44,7 @@ for i in range(number_of_subsystems):
     sub_sys[i].U.G=np.array([sub_sys[i].U.G])
 
 
-omega,theta=parsi.compositional_decentralized_rci(sub_sys,initial_guess='nominal',size='min',initial_order=4,step_size=0.1,alpha_0='random',order_max=100)
+omega,theta=parsi.compositional_decentralized_rci(sub_sys,initial_guess='nominal',initial_order=4,step_size=0.1,alpha_0='random',order_max=100)
 
 for i in range(number_of_subsystems):
     sub_sys[i].state=parsi.sample(sub_sys[i].omega)

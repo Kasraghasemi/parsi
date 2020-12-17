@@ -293,7 +293,7 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
     model.update()
     
     # Adding the constraint for disturbance: W_aug == disturb               ###################################################################################
-    [model.addConstr(W_x[i] == disturb.x[i]) for i in range(n[system_index])]
+    [ model.addConstr(W_x[i] == disturb.x[i]) for i in range(n[system_index]) ]
     for i in range(n[system_index]):
         for j in range(disturb.G.shape[1]):
             if i!=j:
@@ -470,7 +470,7 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
 
 
 # the potential function for coupled LTI subsystems. MPC strating from a given point and ending up inside rci set.
-def potential_function_mpc(list_system, system_index, T_order=3, reduced_order=1,algorithm='slow'):
+def potential_function_mpc(list_system, system_index, coefficient = 0 , T_order=3, reduced_order=1,algorithm='slow'):
     """
     The state (system.state) and rci set (system.omega) needs to be initialized prior to using this function.
     The same is true for alpha_x and alpha_u (system.alpha_x, system.alpha_u)
@@ -649,7 +649,13 @@ def potential_function_mpc(list_system, system_index, T_order=3, reduced_order=1
     u_hausdorff_result = [ parsi.hausdorff_distance_condition(model, pp.zonotope(x=ubar[step],G=M[step]) , pp.zonotope(x=u_nominal[system_index][step+1] , G=U_i[system_index].G) ,list_system[system_index].alpha_u[step]) for step in range(horizon-1) ] 
     d_u,alpha_i_u_constraints = [u_hausdorff_result[step][0] for step in range(horizon-1)] , [u_hausdorff_result[step][1] for step in range(horizon-1)]
 
-    model.setObjective( sum(d_x)+sum(d_u) , GRB.MINIMIZE )
+    
+    h = sum(d_x)+sum(d_u)
+    u_energy  = np.dot( np.array(ubar).reshape(-1) , np.array(ubar).reshape(-1) )
+
+    # print('cost function :' , h + coefficient * u_energy )
+    model.setObjective( h + coefficient * u_energy , GRB.MINIMIZE )
+    # model.setObjective( h , GRB.MINIMIZE )
     model.update()
 
     model.setParam("OutputFlag",False)
@@ -726,3 +732,17 @@ def potential_function_mpc(list_system, system_index, T_order=3, reduced_order=1
 
     return potential_output
 
+
+def be_in_set( model , zonotope_set , point ):
+    """
+    given a "point", this function adds sufficient constraints to force point \in zonotope_set
+
+    inputs: 
+            point
+            zonotope_set
+    outputs: nothing
+    """
+    
+    b = np.array( [ model.addVar( lb=-1, ub=1 ) for _ in range( zonotope_set.G.shape[1] )] )
+
+    model.addConstrs( ( zonotope_set.x[i] + np.dot( zonotope_set.G[ i,: ] , b ) == point[i] ) for i in range( zonotope_set.G.shape[0] ) )

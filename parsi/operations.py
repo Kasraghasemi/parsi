@@ -3,6 +3,7 @@
 """
 import warnings
 import numpy as np
+from timeit import default_timer as timer
 try:
     from gurobipy import *
 except:
@@ -30,7 +31,8 @@ def rci(system,order_max=10,size='min',obj='include_center'):
     Given a LTI system, this function returns a rci set and its action set.
     """
     n= system.A.shape[0]
-    
+    parsi.Monitor['time_centralized_centralized'] = 0
+
     for order in np.arange(1, order_max, 1/n):
         
         prog=MP.MathematicalProgram()
@@ -51,8 +53,15 @@ def rci(system,order_max=10,size='min',obj='include_center'):
             x_desired=system.X.x,
             vars=var['T_x'])
 
-        #Result
+        start_time = timer()
+
+        #Result 
         result=gurobi_solver.Solve(prog)    
+
+        end_time = timer()
+
+        parsi.Monitor['time_centralized_centralized'] = parsi.Monitor['time_centralized_centralized'] + (end_time - start_time)
+
         #print('result',result.is_success())
         beta = system.beta if not 'beta' in var else result.GetSolution(var['beta'])
 
@@ -456,12 +465,28 @@ def compositional_decentralized_rci(list_system,initial_guess='nominal',initial_
 
         else:
             for i in range(len(list_system)):
+
+
+                # finding gradients
+                
                 grad_x= np.array(sum([subsystems_output[j]['alpha_x_grad'][i] for j in range(len(list_system))]))
                 grad_u= np.array(sum([subsystems_output[j]['alpha_u_grad'][i] for j in range(len(list_system))]))
+
+
+                # gradient descent
+
                 list_system[i].alpha_x = list_system[i].alpha_x - step_size * grad_x
                 list_system[i].alpha_u = list_system[i].alpha_u - step_size * grad_u
+
+
+                # Projection to the valid set of aplha
+
                 list_system[i].mapping_alpha_to_feasible_set()
                 
+                # list_system[i].alpha_u =  parsi.parameter_projection( list_system[i].U , list_system[i].theta , list_system[i].alpha_u )
+                # list_system[i].alpha_x =  parsi.parameter_projection( list_system[i].X , list_system[i].omega , list_system[i].alpha_x )
+                
+
                 # this is for tracking alpha and its gradient (for drawing it)    
                 parsi.Monitor['alpha_x'][i].append(list_system[i].alpha_x)  
                 if iteration == 0 and i == 0:
@@ -538,7 +563,7 @@ def compositional_synthesis( list_system , horizon , initial_order=2 , step_size
 
     while objective_function>0 or iteration<10000 or order==order_max:
         
-        subsystems_output = [ parsi.potential_function_mpc(list_system, system_index, T_order=order, reduced_order=1,algorithm=algorithm) for system_index in range(len(list_system)) ]
+        subsystems_output = [ parsi.potential_function_mpc(list_system, system_index, coefficient = 0 ,T_order=order, reduced_order=1,algorithm=algorithm) for system_index in range(len(list_system)) ]
         objective_function_previous=objective_function
         objective_function=sum([subsystems_output[i]['obj'] for i in range(len(list_system)) ])
 
@@ -575,8 +600,26 @@ def compositional_synthesis( list_system , horizon , initial_order=2 , step_size
 
 
                 ######################################## Mapping the removed temperarly
-                # list_system[i].mapping_alpha_to_feasible_set()
+                # list_system[i].mapping_alpha_to_feasible_set()            ##############################################?????
+                
+                # u_0 \in U
 
+                list_system[i].u_nominal[0] = parsi.point_projection_on_set( list_system[i].U  , list_system[i].u_nominal[0] )
+
+                # assumption \subseteq U
+
+                for step in range(horizon-1):
+                    
+                    # control input
+                    list_system[i].alpha_u[step] =  parsi.parameter_projection( list_system[i].U , 
+                                                                                pp.zonotope( x = list_system[i].u_nominal[step+1] , G = list_system[i].theta.G) ,
+                                                                                list_system[i].alpha_u[step] 
+                                                                                )
+                    # State space FOR NOW IT IS COMMENT, BECAUSE I WANT TO MAKE RCI SET SMALL AND GET INTO IT!
+                    # list_system[i].alpha_x[step] =  parsi.parameter_projection( list_system[i].X ,
+                    #                                                             pp.zonotope( x = list_system[i].x_nominal[step+1] , G = list_system[i].omega.G) ,
+                    #                                                             list_system[i].alpha_x[step]
+                    #                                                            )
 
                 
 
@@ -611,3 +654,100 @@ def compositional_mpc_initialization(list_system):
 
         sys.alpha_u = np.delete( sys.alpha_u , 0 , axis=0 )
         sys.alpha_u = np.concatenate( (sys.alpha_u , np.ones(sys.theta.G.shape[1]).reshape(1,-1) ) , axis=0)
+
+
+
+def point_projection_on_set( zonotope_set , x ):
+    """
+    this function returns x_p which is the projection of x in the given set.
+    input: 
+            zon_set (input set in a form of a zonotope)
+            x (a vector)
+    output: 
+            x_p
+    """
+    dimension =  zonotope_set.G.shape[0]
+
+    model_projection = Model()
+
+    x_p = np.array( [ model_projection.addVar( lb=-float('inf') , ub= float('inf') ) for _ in range(dimension) ] )
+    b = np.array( [ model_projection.addVar( lb=-1, ub=1 ) for _ in range( zonotope_set.G.shape[1] ) ] )
+
+    model_projection.update()
+
+    # x_p \in zonotope_set
+
+    model_projection.addConstrs( ( np.dot( zonotope_set.G[k,:] , b ) + zonotope_set.x[k]   == x_p[k] ) for k in range( dimension ) )
+
+    model_projection.update()
+    
+    # MSE error
+
+    difference_vector = x - x_p
+    
+    mse = np.dot( difference_vector.T , difference_vector )
+
+    model_projection.setParam("OutputFlag",False)
+    model_projection.setObjective( mse , GRB.MINIMIZE) 
+    model_projection.update()
+
+    model_projection.optimize()
+
+    return np.array( [ i.X for i in x_p ] )
+
+
+def parameter_projection( circumbody_set, inbody_set, alpha ):
+    """
+    this function returns alpha_p which is the projection of alpha such that inbody_set * diag(alpha) \subseteq circumbody_set.
+    input: 
+            circumbody_set (in a form of a zonotope)
+            inbody_set (in a form of a zonotope)
+            alpha (a vector)
+    output: 
+            alpha_p
+    """
+
+    model_projection = Model()
+
+    alpha_p = np.array( [ model_projection.addVar( lb=-float('inf') , ub= float('inf') ) for _ in range( inbody_set.G.shape[1] ) ] )
+
+    if type( inbody_set.x[0] ) == gurobipy.Var:
+        
+        center = np.array( [ model_projection.addVar( lb=-float('inf') , ub= float('inf') ) for _ in range( inbody_set.G.shape[0] ) ] )
+
+    else:
+        center = inbody_set.x 
+
+    model_projection.update()
+
+    # inbody_set * diag(alpha) \subseteq circumbody_set
+    inbody = pp.zonotope( x = center , G = np.dot( inbody_set.G , np.diag( alpha_p ) )  )
+    pp.zonotope_subset( model_projection , inbody , circumbody_set , solver='gurobi') 
+
+    model_projection.update()
+    
+    # MSE error
+
+    if type( inbody_set.x[0] ) == gurobipy.Var:
+
+        difference_vector = np.hstack( alpha , inbody_set.x  ) - np.hstack( alpha_p , center )
+    
+    else:
+        difference_vector = alpha - alpha_p
+    
+    mse = np.dot( difference_vector.T , difference_vector )
+
+    model_projection.setObjective( mse , GRB.MINIMIZE) 
+    model_projection.update()
+
+    model_projection.setParam("OutputFlag",False)
+    model_projection.optimize()
+
+    alpha_p = np.array( [ i.X for i in alpha_p ] )
+
+    if type( inbody_set.x[0] ) == gurobipy.Var:
+
+        return alpha_p , np.array( [ i.X for i in center ] )
+    else:
+
+        return alpha_p
