@@ -1,0 +1,6 @@
+ time_centralized_decentralized 0.0 , 0.0 
+ time_compositional [1.27184319 0.         0.         0.         0.         0.
+ 0.         0.         0.         0.        ] , [24.29328171  0.          0.          0.          0.          0.
+  0.          0.          0.          0.        ] 
+ number_iterations 3.1 
+ number_iterations [31.  0.  0.  0.  0.  0.  0.  0.  0.  0.]

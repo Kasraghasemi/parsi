@@ -186,9 +186,10 @@ def rci_decentralized_constraints_gurobi(model,list_system,T_order=3,initial_gue
         # Adding hard constraints over state and control input spaces
         if list_system[sys].U != None:
             pp.zonotope_subset(model, pp.zonotope(x=np.array(ubar[sys]).T,G= M[sys]) , list_system[sys].U ,solver='gurobi')
+            
         if list_system[sys].X != None:
             pp.zonotope_subset(model, pp.zonotope(x=np.array(xbar[sys]).T,G=T[sys]) , list_system[sys].X ,solver='gurobi' )
-
+            
     # Adding Correctness constraints
     alpha_u=[ pp.zonotope_subset(model, pp.zonotope(x=np.array(ubar[sys]).T,G= M[sys]) , U_i[sys] ,alpha='vector',solver='gurobi')[2] for sys in range(sys_number)]
     [model.addConstrs((alpha_u[sys][i] >= 0 for i in range(len(alpha_u[sys]))) ) for sys in range(sys_number)]
@@ -334,7 +335,7 @@ def potential_function(list_system, system_index, T_order=3, reduced_order=1):
     parsi.Monitor['time_compositional'][system_index].append( model.Runtime )
 
     #print('MODEL',model.IsMIP)
-    print('MODEL STATUS',model.Status)
+    # print('MODEL STATUS',model.Status)
     #print('OBJECTIVE FUNCTION',model.objVal)
 
 
@@ -633,13 +634,18 @@ def potential_function_mpc(list_system, system_index, coefficient = 0 , T_order=
     
     model.update()
 
-    # Terminal constraint last_viable_set_i \subseteq omega_i
+    # Terminal constraint last_viable_set_i \subseteq omega_i (it is horizon-1 because the number of T is h and itsindex starts from 0 to h-1)
     ############### IT MAY MAKE THE WHOLE OPTIMIZATION PROBLEM INFEASIBLE
-    pp.zonotope_subset( model , pp.zonotope( x= xbar[horizon-1] , G= T[horizon-1] ) , list_system[system_index].omega , solver='gurobi')
+    # pp.zonotope_subset( model , pp.zonotope( x= xbar[horizon-1] , G= T[horizon-1] ) , list_system[system_index].omega , solver='gurobi')
+
+    terminal_hausdorff_result = parsi.hausdorff_distance_condition(model, pp.zonotope(x=xbar[ horizon-1 ],G=T[ horizon-1 ]) , list_system[system_index].omega , np.ones( list_system[system_index].omega.G.shape[1] ) )
     model.update()
 
     # Hard constraint over control input
-    [ pp.zonotope_subset( model , pp.zonotope(x=ubar[step],G=M[step])  , list_system[system_index].U , solver='gurobi' ) for step in range(horizon-1)]
+    # [ pp.zonotope_subset( model , pp.zonotope(x=ubar[step],G=M[step])  , list_system[system_index].U , solver='gurobi' ) for step in range(horizon-1)]
+    
+    be_in_set( model ,  list_system[system_index].U , u_nominal[system_index][0] )
+    model.update()
     ######### for first u_nominal
 
     # Finding the Hausdurff Distances
@@ -649,20 +655,34 @@ def potential_function_mpc(list_system, system_index, coefficient = 0 , T_order=
     u_hausdorff_result = [ parsi.hausdorff_distance_condition(model, pp.zonotope(x=ubar[step],G=M[step]) , pp.zonotope(x=u_nominal[system_index][step+1] , G=U_i[system_index].G) ,list_system[system_index].alpha_u[step]) for step in range(horizon-1) ] 
     d_u,alpha_i_u_constraints = [u_hausdorff_result[step][0] for step in range(horizon-1)] , [u_hausdorff_result[step][1] for step in range(horizon-1)]
 
-    
-    h = sum(d_x)+sum(d_u)
-    u_energy  = np.dot( np.array(ubar).reshape(-1) , np.array(ubar).reshape(-1) )
 
-    # print('cost function :' , h + coefficient * u_energy )
-    model.setObjective( h + coefficient * u_energy , GRB.MINIMIZE )
-    # model.setObjective( h , GRB.MINIMIZE )
+    # Objective
+
+    # h is the sum of Hausdorff distances
+    h = sum(d_x) + sum(d_u) + 10 * terminal_hausdorff_result[0]
+
+    u_hausdorff_result  = [ parsi.hausdorff_distance_condition(model, pp.zonotope(x = ubar[ step ],G=M[ step ]) , list_system[system_index].U , np.ones( list_system[system_index].U.G.shape[1] ) )[0] for step in range(horizon-1)]
+    
+    model.update()
+
+    h = h + sum ( u_hausdorff_result )
+
+
+
+
+
+    # cost is x^TQx + u^TRu , where x and u are centers of the viable sets and action sets, respectively
+    # cost  = np.dot( np.array(ubar).reshape(-1) , np.array(ubar).reshape(-1) ) + np.dot( np.array(xbar).reshape(-1) , np.array(xbar).reshape(-1) )
+    cost  = np.dot( np.array(xbar).reshape(-1) , np.array(xbar).reshape(-1) )
+
+    model.setObjective( h + coefficient * cost , GRB.MINIMIZE )
+
     model.update()
 
     model.setParam("OutputFlag",False)
     model.optimize()
     #print('MODEL',model.IsMIP)
     print('MODEL STATUS',model.Status)
-    # print('OBJECTIVE FUNCTION',model.objVal)
 
 
     # Computing the gradients of alpha_x(1,h-1) , alpha_u(1,h-1) , x_nominal(1,h-1) , u_nominal(0,h-1) 
@@ -719,6 +739,7 @@ def potential_function_mpc(list_system, system_index, coefficient = 0 , T_order=
 
     potential_output = {
         'obj' : model.objVal ,
+        'h' : sum( [i.X for i in d_x] + [i.X for i in d_u] ) + terminal_hausdorff_result[0].X + sum ( [i.X for i in u_hausdorff_result]  ), 
         'alpha_alpha_x_grad' : np.array(grad_alpha_x_i),
         'alpha_alpha_u_grad' : np.array(grad_alpha_u_i),
         'x_nominal_grad' : np.array(grad_x_nominal),

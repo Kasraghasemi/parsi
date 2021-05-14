@@ -120,7 +120,7 @@ class Linear_system:
         """
         This function replaces the the elements of alpha which are larger than alpha_max with their corresponding elements in alpha_max 
         """
-
+        # COMMENT THESE TWO FOLLOWING LINE WHEN USING MPC
         self.alpha_x[self.alpha_x>self.alpha_x_max]=self.alpha_x_max[self.alpha_x>self.alpha_x_max]
         self.alpha_x[self.alpha_x<0]=0
 
