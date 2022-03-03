@@ -80,7 +80,7 @@ class Linear_system:
         self.state = x_next
         return x_next
 
-    def rci(self,order_max=10,size='min',obj='include_center'):
+    def rci(self,order_max=10):
         """
         It finds the rci set and action set for an LTI system
         Inputs: Maximum order for our iterative approach to find an rci set (order_max)
@@ -89,7 +89,7 @@ class Linear_system:
         Outputs: rci set(omega) and action set(theta)
         """
         import parsi
-        omega,theta=parsi.rci(self,order_max=10,size=size,obj=obj)
+        omega,theta=parsi.rci(self,order_max=10)
         self.omega=omega
         self.theta=theta
         return omega,theta
@@ -112,9 +112,9 @@ class Linear_system:
         """
         It puts parameterized sets in self.param_set_X and self.param_set_U
         """
-        X_i,U_i = rci_decentralized_initialization([self],initial_guess=initial_guess,order_max=order_max,size=size,obj=obj)
-        self.param_set_X=X_i[0]
-        self.param_set_U=U_i[0]
+        X_i,U_i = rci_decentralized_initialization([self],initial_guess=initial_guess,order_max=order_max)
+        self.param_set_X=X_i[0]                 # ToDo: Check if it needs to change to X_i
+        self.param_set_U=U_i[0]                 # ToDo: Check if it needs to change to U_i
 
     def mapping_alpha_to_feasible_set(self):
         """
@@ -136,13 +136,13 @@ def sample(zonotope):
 
 
 # Initilizing the paramterize set in computing decentralized rci sets
-def rci_decentralized_initialization(list_system,initial_guess='nominal',order_max=50,size='min',obj='include_center'):
+def rci_decentralized_initialization(list_system,initial_guess='nominal',order_max=50):
     
     # The intitial guesses are the rci sets without considering the couplings
     if initial_guess=='nominal':
         X_i,U_i=[],[]
         for i in range(len(list_system)):
-            omega,theta = list_system[i].rci(order_max=order_max,size=size,obj=obj)
+            omega,theta = list_system[i].rci(order_max=order_max)
             X_i.append(omega)
             U_i.append(theta)
     

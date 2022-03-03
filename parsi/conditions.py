@@ -1,6 +1,7 @@
 """
 @author: kasra
 """
+from matplotlib.pyplot import step
 import numpy as np
 try:
     from gurobipy import *
@@ -16,71 +17,94 @@ try:
 except:
     print('Error: parsi package is not installed correctly') 
 
-def rci_constraints(program,system,T_order=3):
+def rci_constraints(model, system, T_order, general_version=True):
     """
     This function adds necessary constraints for RCI (robust control invariant) set for a LTI.
+    Inputs: 
+        program; which must be a Gurobi model
+        system; must be a time invariant linear system
+        T_order; is the order of T matrix
+        general_version; True -> Considers beta as a variable in the algorithm
+                         False -> Does NOT consider beta. More restricted version of the algorithm
+    Outputs:
+        a dictionaty containing:
+            x_bar; Center of the rci
+            T; Generator of the rci 
+            u_bar; Center of the action set
+            M; Generator of the action set
+            beta; None -> if the general_version in argument is set to False
+                  a positive gurobi variable between zero and one if the general_version in argument is set to True
     """
+    
     assert(system.sys=='LTI'), "The system has to be LTI (linear time invariant)"
     n = system.A.shape[0]               # Matrix A is n*n
     m = system.B.shape[1]               # Matrix B is n*m
-    k = round(n*T_order)
+    k = int(round(n*T_order))
     p = system.W.G.shape[1]
+
+    # Defining Variables
+    T = np.array( [ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for ـ in range(k)] for ـ in range(n)] )
+    x= np.array( [ model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for ـ in range(n)] )              
+
+    M = np.array( [ [ model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for ـ in range(k)] for ـ in range(m)] )
+    u= np.array( [ model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for ـ in range(m)] )       
+    model.update()
+
+    # Defining RCI Constraint 
+
+    #   [AT+BM,W] == [E,T] (when general_version is False it is [AT+BM,W] == [0,T])
+    left_side_rci_constraint = np.hstack(( np.dot(system.A,T) + np.dot(system.B,M) , system.W.G ))
+
+    # Adding the constraint Z(0,E) \subseteq Z(0,beta * W.G ) if general_version is True
+    if general_version == True:
+        E = np.array( [ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for _ in range(left_side_rci_constraint.shape[1]-k )] for _ in range(n)] )
+        model.update()
+
+        _ , _ , beta = pp.zonotope_subset(model, pp.zonotope( x = np.zeros(n) , G = E ) , pp.zonotope( x = np.zeros(n) ,G = system.W.G ) ,alpha='scalar' ,solver='gurobi')
+        beta.UB=0.999999
+        beta.LB=0
+        model.update()
+
+    elif general_version == False:
+        E = np.zeros((n,n))
+        beta = None
     
-    E=system.E
-    flag=0
-    if E==True:
-        e=program.NewContinuousVariables( n, p, 'E')                #E is n*p
-        if (system.X.x==0).all() and (system.U.x==0).all() and (system.W.x==0).all():
-            flag=1
-    elif E==False:
-        e=np.zeros((n,p))
-        system.beta=0
-    else:
-        raise ValueError('E in the argument needs to be either False or True')      
-    beta = system.beta
+    right_side_rci_constraint = np.hstack((  E, T ))
 
-    #Defining Variables
-    T=program.NewContinuousVariables( n, k, 'T')                #T is n*k
-    M=program.NewContinuousVariables( m, k, 'M')                #M is m*k
-    T_x=program.NewContinuousVariables( n,'T_center')               #T_x is the x_bar in the paper
-    M_x=program.NewContinuousVariables( m,'M_center')               #M_x is the u_bar in the paper
+    model.addConstrs( (left_side_rci_constraint[i,j]==right_side_rci_constraint[i,j] for i in range(n) for j in range(n+k)) )
+    model.update()
 
-    #Defining Constraints
-    left_side = np.concatenate( (np.dot(system.A,T)+np.dot(system.B,M) , system.W.G) ,axis=1)               #[AT+BM,W]
-    right_side = np.concatenate( (e,T),axis=1)              #[E,T]
-    program.AddLinearConstraint(np.equal(left_side,right_side,dtype='object').flatten())             #[AT+BM,W]==[E,T]
+    #   Ax+Bu+d=x
+    model.addConstrs( ( (np.dot(system.A , x) + np.dot(system.B , u) + system.W.x)[i] ==x[i] for i in range(n) ) )
+    model.update()
 
-    if flag==1:
-        _,_,beta = pp.zonotope_subset(program, pp.zonotope(G=e,x=np.zeros(e.shape[0])) , pp.zonotope(G=system.W.G,x=np.zeros(system.W.G.shape[0])) , alpha='scalar')             #Z(0,E) \subset Z(0,beta*W)
-        program.AddBoundingBoxConstraint(0,0.999,beta)              #CHECK IT, I NEED 0<=beta<1
-        # program.AddLinearConstraint(beta < 1)
-        # program.AddLinearConstraint(beta >= 0)
-        program.AddLinearConstraint(np.equal(T_x, np.zeros(T.shape[0]),dtype='object').flatten())
-        program.AddLinearConstraint(np.equal(M_x, np.zeros(M.shape[0]),dtype='object').flatten())
-        if system.X!=None:
-            _,_,beta1=pp.zonotope_subset(program, pp.zonotope(G=T,x=np.zeros(T.shape[0])) , system.X , alpha='scalar' )
-            program.AddLinearConstraint(np.equal(beta1,(1-beta),dtype='object'))
-        if system.U!=None:
-            _,_,beta2=pp.zonotope_subset(program, pp.zonotope(G=M,x=np.zeros(M.shape[0])) , system.U , alpha='scalar' )
-            program.AddLinearConstraint(np.equal(beta2,(1-beta),dtype='object'))
-    elif flag==0:
-        if E==True:
-            pp.zonotope_subset(program, pp.zonotope(G=e,x=np.zeros(e.shape[0])) , pp.zonotope(G=beta *system.W.G,x=np.zeros(system.W.G.shape[0])) )
-        if system.X!=None:
-            pp.zonotope_subset(program, pp.zonotope(G=T/(1-beta),x=T_x) , system.X )
-        if system.U!=None:
-            pp.zonotope_subset(program, pp.zonotope(G=M/(1-beta),x=M_x) , system.U )
-        center=np.equal( np.dot(system.A , T_x) + np.dot(system.B , M_x) + system.W.x , T_x ,dtype='object').flatten()
-        program.AddLinearConstraint(center)               #A*x_bar+ B*u_bar +w_bar==x_bar       #IT WILL MAKE PROBLEM WHEN IT BECOMES TRUE!
+    # Adding the hard constraints over state and control inputs
+    if system.X is not None:
+        if general_version == True:
+            _ , _ , coeff_x = pp.zonotope_subset(model, pp.zonotope(G=T,x=x) , system.X ,alpha='scalar' ,solver='gurobi')
+            model.update()
+            model.addConstr( (1-beta) == coeff_x )
+        elif general_version == False:
+            pp.zonotope_subset(model, pp.zonotope(G=T,x=x) , system.X ,solver='gurobi')
+    model.update()
+
+    if system.U is not None:
+        if general_version == True:
+            _ , _ , coeff_u = pp.zonotope_subset(model, pp.zonotope(G=M,x=u) , system.U ,alpha='scalar' ,solver='gurobi')
+            model.update()
+            model.addConstr( (1-beta) == coeff_u )
+            
+        elif general_version == False:
+            pp.zonotope_subset(model, pp.zonotope(G=M,x=u) , system.U ,solver='gurobi')
+    model.update()
     
     output={
         'T':T,
-        'T_x': T_x,
+        'x_bar': x,
         'M':M,
-        'M_x': M_x
+        'u_bar': u,
+        'beta': beta
     }
-    if flag==1:
-        output['beta']=beta
     
     return output
 
@@ -133,29 +157,56 @@ def viable_constraints(program,system,T_order=3,algorithm='slow'):
     return output
 
 
-def mpc_constraints(program,system,horizon=1,hard_constraints=True):
+def mpc_constraints(model,system,horizon=1,hard_constraints=True):
+    """
+    It adds mpc constraints to a gurobi model
+    Inputs:
+        model; a gurobi model
+        system; either LTV or LTI model
+        horizon; it is the mpc horizon
+        hrad_constraints; True -> If you want to impose control and state hard constraints
+                          False -> Otherwise
+    Output:
+        x; which is the predicated states, x[n * (horizon+1)]
+        u; which is the predicated control inputs, u[m * (horizon)]
+    """
+
+    n = system.A.shape[0]               # Matrix A is n*n
+    m = system.B.shape[1]               # Matrix B is n*m
+
+
+    # Variables for predicated states and control inputs
+    x = np.array( [ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for ـ in range(horizon+1)] for ـ in range(n)] )
+    u = np.array( [ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for ـ in range(horizon)] for ـ in range(m)] )
+    model.update()
+
+    # imposing intial state
+    model.addConstrs( (x[:,0][i] == system.state[i] for i in range(n) ))
+    model.update()
 
     if system.sys=='LTI':
-        n = system.A.shape[0]               # Matrix A is n*n
-        m = system.B.shape[1]               # Matrix B is n*m
+        # dynamics constraints
+        model.addConstrs( ( (np.dot(system.A , x[:,step]) + np.dot(system.B , u[:,step]))[i]== x[i,step+1] for i in range(n) for step in range(horizon)) )
 
-        x=program.NewContinuousVariables( n,horizon,'x')
-        x=np.concatenate((system.state.reshape(-1,1),x ), axis=1)
-        u=program.NewContinuousVariables( m,horizon,'u')
+    elif system.sys=='LTV':
+        # dynamics constraints
+        model.addConstrs( (np.dot(system.A[step] , x[:,step]) + np.dot(system.B[step] , u[:,step])[i]== x[:,step+1] for i in range(n) for step in range(horizon)) )
 
-        #Dynamics
-        dynamics=np.equal( np.dot(system.A , x[:,:-1]) + np.dot(system.B , u) , x[:,1:] ,dtype='object').flatten()
-        program.AddLinearConstraint(dynamics)
+    #Hard constraints over state
+    if hard_constraints==True:
+        if system.X!=None:
+            if system.sys=='LTI':
+                _=[parsi.be_in_set(model,system.X,x[:,i]) for i in range(horizon+1)]
+            else:
+                _=[parsi.be_in_set(model,system.X[i],x[:,i]) for i in range(horizon+1)]
+        #Hard constraints over control input
+        if system.U!=None:
+            if system.sys=='LTI':
+                _=[parsi.be_in_set(model,system.U,u[:,i]) for i in range(horizon)]
+            else:
+                _=[parsi.be_in_set(model,system.U[i],u[:,i]) for i in range(horizon)]
 
-        #Hard constraints over state
-        if hard_constraints==True:
-            if system.X!=None:
-                _=[pp.be_in_set(program,x[:,i],system.X) for i in range(1,horizon)]
-            #Hard constraints over control input
-            if system.U!=None:
-                _=[pp.be_in_set(program,u[:,i],system.U) for i in range(horizon)]
-
-        return x,u
+    return x,u
 
 
 def rci_decentralized_constraints_gurobi(model,list_system,T_order=3,initial_guess='nominal'):
@@ -165,11 +216,11 @@ def rci_decentralized_constraints_gurobi(model,list_system,T_order=3,initial_gue
     sys_number = len(list_system)
     n=[list_system[i].A.shape[0] for i in range(sys_number)]
     m=[list_system[i].B.shape[1] for i in range(sys_number)]
-    k = [round(n[i]*T_order) for i in range(sys_number)] 
+    k = [int(round(n[i]*T_order)) for i in range(sys_number)] 
 
     # Initilizing the paramterize set
     if any([sys.omega==None for sys in list_system]) and any([sys.theta==None for sys in list_system]) :
-        X_i,U_i = parsi.rci_decentralized_initialization(list_system,initial_guess='nominal',order_max=10,size='min',obj='include_center')
+        X_i,U_i = parsi.rci_decentralized_initialization(list_system,initial_guess='nominal',order_max=10)
     else:
         X_i=[sys.omega for sys in list_system]
         U_i=[sys.theta for sys in list_system]
@@ -754,16 +805,18 @@ def potential_function_mpc(list_system, system_index, coefficient = 0 , T_order=
     return potential_output
 
 
-def be_in_set( model , zonotope_set , point ):
+def be_in_set( model , zonotope_set ,point):
     """
     given a "point", this function adds sufficient constraints to force point \in zonotope_set
-
     inputs: 
             point
             zonotope_set
-    outputs: nothing
+    outputs: zeta
     """
-    
-    b = np.array( [ model.addVar( lb=-1, ub=1 ) for _ in range( zonotope_set.G.shape[1] )] )
 
-    model.addConstrs( ( zonotope_set.x[i] + np.dot( zonotope_set.G[ i,: ] , b ) == point[i] ) for i in range( zonotope_set.G.shape[0] ) )
+    zeta = np.array( [ model.addVar( lb=-1, ub=1 ) for _ in range( zonotope_set.G.shape[1] )] )
+
+    model.addConstrs( ( zonotope_set.x[i] + np.dot( zonotope_set.G[ i,: ] , zeta ) == point[i] ) for i in range( zonotope_set.G.shape[0] ) )
+    model.update()
+
+    return zeta

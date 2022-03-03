@@ -26,56 +26,54 @@ try:
 except:
     warnings.warn("You don't have parsi not properly installed.")
 
-def rci(system,order_max=10,size='min',obj='include_center'):
+def rci(system,order_max=10, general_version=True,obj=True):
     """
     Given a LTI system, this function returns a rci set and its action set.
+    Inputs:
+        system; which must be a linear system
+        order_max; the algorithm use order_max to iterate over k. It stops iterating over k after it reaches order_max
+        general_version; True -> Considers beta as a variable in the algorithm
+                         False -> Does NOT consider beta. More restricted version of the algorithm
+    Outputs:
+        omega; the rci set in for of a zontope
+        theta; the action set in for of a zontope
     """
+
     n= system.A.shape[0]
-    parsi.Monitor['time_centralized_centralized'] = 0
 
     for order in np.arange(1, order_max, 1/n):
         
-        prog=MP.MathematicalProgram()
-        var=parsi.rci_constraints(prog,system,T_order=order)
-        T=var['T'].flatten()
+        model = Model()
+        var = parsi.rci_constraints(model,system,order,general_version=general_version)
 
-        #Defining the objective function
-        #objective function for minimizing the size of the RCI set
-        if size=='min':
-            prog.AddQuadraticErrorCost(
-            Q=np.eye(len(T)),
-            x_desired=np.zeros(len(T)),
-            vars=T)
-        #objective function for minimizing the distance between the RCI set and the set of admissible states
-        if obj=='include_center':
-            prog.AddQuadraticErrorCost(
-            Q=np.eye(len(var['T_x'])),
-            x_desired=system.X.x,
-            vars=var['T_x'])
-
-        start_time = timer()
+        # adding objective function to make the center of the rci set as close as possible tot he center of X, admission state set
+        if obj == True:
+            model.setObjective( np.dot(var['x_bar'] - system.X.x , var['x_bar'] - system.X.x) )
 
         #Result 
-        result=gurobi_solver.Solve(prog)    
+        model.update()
+        model.setParam("OutputFlag",False)
+        model.optimize() 
 
-        end_time = timer()
+        if model.status == 2:
+            k= var['T'].shape[1]
+            m= var['M'].shape[0]
 
-        parsi.Monitor['time_centralized_centralized'] = parsi.Monitor['time_centralized_centralized'] + (end_time - start_time)
+            T_result = np.array( [ [var['T'][i][j].x for j in range(k)] for i in range(n) ] )
+            x_bar_result = np.array( [ var['x_bar'][i].x for i in range(n)] )
+            M_result = np.array( [ [var['M'][i][j].x for j in range(k)] for i in range(m) ] )
+            u_bar_result = np.array( [ var['u_bar'][i].x for i in range(m)] )
+            beta = var['beta'].x if var['beta'] is not None else 0
 
-        #print('result',result.is_success())
-        beta = system.beta if not 'beta' in var else result.GetSolution(var['beta'])
+            omega = pp.zonotope(x = x_bar_result , G = T_result / (1-beta))
+            theta = pp.zonotope(x = u_bar_result , G = M_result / (1-beta))
 
-        if result.is_success():
-            T_x=result.GetSolution(var['T_x'])
-            M_x=result.GetSolution(var['M_x'])
-            omega=pp.zonotope(G=result.GetSolution(var['T'])/(1-beta),x=T_x)
-            theta=pp.zonotope(G=result.GetSolution(var['M'])/(1-beta),x=M_x)
-            return omega,theta
+            return omega , theta
         else:
-            del prog
-            continue    
-    print("Infeasible:We couldn't find any RCI set. You can change the order_max or system.beta and try again.")
-    return None,None
+            del model
+
+    print('Not able to find a feasible solution for the RCI set. You can try again by increasing the order_max')
+    return None , None
 
 
 def viable_limited_time(system,order_max=10,size='min',obj='include_center',algorithm='slow'):
@@ -343,52 +341,47 @@ def decentralized_rci_centralized_gurobi(list_system,initial_guess='nominal',siz
 def mpc(system,horizon=1,x_desired='origin'):
     """
     MPC: Model Predictive Control
+    Inputs:
+        system; can be a LTI ot LTV system
+        horizon; which is the MPC horizon
+        x_desired; is the desired state
+    Output:
+        u
+
     """
-    landa_terminal=10                #Terminal cost coefficient
-    landa_controller=1
+    
+    terminal_cost = 2
+    cost_x_coeff = 0.1
+    cost_u_coeff = 0.1
 
     n = system.A.shape[0]               # Matrix A is n*n
     m = system.B.shape[1]               # Matrix B is n*m
     if x_desired=='origin':
-            x_desired=np.zeros(n)
+        x_desired=np.zeros(n)
 
-    if system.omega==None and system.theta==None:
-        system.rci()
-    omega,theta=system.omega , system.theta
+    model = Model()
+    # dynamical constraint and hard constraints
+    x,u=parsi.mpc_constraints(model,system,horizon=horizon,hard_constraints=True)
 
-    prog=MP.MathematicalProgram()
-    x,u=parsi.mpc_constraints(prog,system,horizon=horizon,hard_constraints=False)
+    # Objective function
+    cost_x = sum( [ cost_x_coeff * np.dot( (x[:,step] - x_desired) , (x[:,step] - x_desired) ) for step in range(horizon)])
+    # Terminal Cost
+    cost_terminal = terminal_cost * np.dot( (x[:,horizon] - x_desired) , (x[:,horizon] - x_desired) ) 
+    # Energy Cost
+    cost_u = sum( [ cost_u_coeff * np.dot( u[:,step] , u[:,step] ) for step in range(horizon)])
 
-    #Controller is in a shape of x=T_x + T zeta, so u=M_x + M zeta
-    zeta =np.array([pp.be_in_set(prog,x[:,i],omega) for i in range(horizon)]).T                #Last one does not count
-    prog.AddLinearConstraint( np.equal( theta.x.reshape(-1,1)+np.dot(theta.G,zeta) , u ,dtype='object').flatten() )
+    model.setObjective( cost_x+cost_u+cost_terminal , GRB.MINIMIZE)
 
-    #Objective
-    
-    #Cost Over x
-    prog.AddQuadraticErrorCost(
-    Q=np.eye(n*(horizon-1)),
-    x_desired=np.tile(x_desired,horizon-1),
-    vars=x[:,1:-1].T.flatten())
+    model.setParam("OutputFlag",False)
+    model.optimize() 
+    print('mpc mode is ', model.Status)
 
-    #Terminal Cost
-    prog.AddQuadraticErrorCost(
-    Q=landa_terminal*np.eye(n),
-    x_desired=x_desired,
-    vars=x[:,-1].flatten())
+    x_mpc = np.array( [ [x[i,j].x for j in range(horizon+1)] for i in range(n)] )
+    u_mpc = np.array( [ [u[i,j].x for j in range(horizon)] for i in range(m)] )
 
-    #Energy Cost
-    prog.AddQuadraticErrorCost(
-    Q=landa_controller*np.eye(m*horizon),
-    x_desired=np.zeros(m*horizon),
-    vars=u.flatten())
+    implementable_u = u_mpc[:,0]
 
-    #Result
-    result=gurobi_solver.Solve(prog)    
-
-    if result.is_success():
-        u_mpc=result.GetSolution(u[:,0])
-        return u_mpc
+    return implementable_u , x_mpc , u_mpc
 
 
 def compositional_decentralized_rci(list_system,initial_guess='nominal',initial_order=2,step_size=0.1,alpha_0='random',order_max=100 , iteration_max=1000):
@@ -587,6 +580,100 @@ def compositional_synthesis( list_system , horizon , initial_order=2 , step_size
 
         # objective function
         objective_function = sum([subsystems_output[i]['obj'] for i in range(len(list_system)) ])
+
+
+
+
+
+
+
+        # # GIF
+        # number_of_subsystems = len(list_system)
+        # if iteration % 5 ==0 :
+        #     import matplotlib.pyplot as plt
+        #     u_0 = [ i.u_nominal[0] for i in list_system ]
+        #     viable = [ [ pp.zonotope(G=subsystems_output[i]['T'][step],x=subsystems_output[i]['xbar'][step]) for step in range(horizon)] for i in range(len(list_system)) ]
+        #     action = [ [ pp.zonotope(G=subsystems_output[i]['M'][step],x=subsystems_output[i]['ubar'][step]) for step in range(horizon-1)] for i in range(len(list_system)) ]
+        #     for i in range(len(list_system)):
+
+        #         list_system[i].viable = viable[i]
+        #         list_system[i].action = action[i]
+        #         list_system[i].u_nominal[0] = u_0[i]
+
+        #     fig, axs = plt.subplots( 2,2 )
+        #     for i in range(number_of_subsystems):
+        #         list_system[i].omega.color='red'
+        #         # sub_sys[i].viable[-1].color='pink'
+        #         path = np.array( [ list_system[i].viable[step].x for step in range(horizon)] )
+        #         path = np.concatenate( ( list_system[i].x_nominal[0].reshape(1,2) , path ) ,axis=0)
+
+        #         # drawing the parameterized sets
+
+        #         if i == 0 :
+        #             j = (0,0)
+        #         elif i == 1 :
+        #             j = (0,1)
+        #         elif i == 2 :
+        #             j= (1,0)
+        #         elif i == 3 :
+        #             j = (1,1) 
+
+        #         # for step in range(1,horizon):
+
+        #         #     # sub_sys[i].viable[step] = pp.pca_order_reduction( sub_sys[i].viable[step] , desired_order=6 )
+                    
+        #         #     # assump_set = pp.pca_order_reduction( pp.zonotope( G= np.dot( sub_sys[i].omega.G , np.diag( sub_sys[i].alpha_x[step-1]) ) ,  x= sub_sys[i].x_nominal[step] , color = 'yellow') , desired_order=6 )
+
+
+        #         #     pp.visualize( [ pp.zonotope( G= np.dot( sub_sys[i].omega.G , np.diag( sub_sys[i].alpha_x[step-1]) ) ,  x= sub_sys[i].x_nominal[step] , color = 'yellow') ] 
+        #         #                     , ax = axs[j] , title='' , equal_axis=True
+        #         #                 )
+
+        #         # pp.visualize([sub_sys[i].omega,*sub_sys[i].viable], ax = axs[j],fig=fig, title='',equal_axis=True)
+        #         pp.visualize([list_system[i].X,*list_system[i].viable], ax = axs[j],fig=fig, title='',equal_axis=True)
+
+        #         axs[j].plot( path[:,0], path[:,1] , 'r--')
+
+
+        # axs[0,0].set_xlim( -0.22 , 0.02 )
+        # axs[0,1].set_xlim( -0.01 , 0.03 )
+        # axs[1,0].set_xlim( -0.01 , 0.06 )
+        # axs[1,1].set_xlim( -0.04 , 0.005 )
+
+        # axs[0,0].set_ylim( -0.01 , 0.12 )
+        # axs[0,1].set_ylim( -0.025 , 0.012 )
+        # axs[1,0].set_ylim( -0.06 , 0.02 )
+        # axs[1,1].set_ylim( -0.012 , 0.03)
+
+
+        # # for i, ax in enumerate(axs.flat):
+        # #     ax.set_title(f'Area {i+1}')
+
+
+        # axs[0,0].set_xlabel(r'$\delta_1$',FontSize=12 )
+        # axs[0,0].set_ylabel(r'$f_1$',FontSize=12 , rotation=0)
+
+        # axs[0,1].set_xlabel(r'$\delta_2$',FontSize=12 )
+        # axs[0,1].set_ylabel(r'$f_2$',FontSize=12 , rotation=0)
+
+        # axs[1,0].set_xlabel(r'$\delta_3$',FontSize=12 )
+        # axs[1,0].set_ylabel(r'$f_3$',FontSize=12 , rotation=0)
+
+        # axs[1,1].set_xlabel(r'$\delta_4$',FontSize=12 )
+        # axs[1,1].set_ylabel(r'$f_4$',FontSize=12 , rotation=0)
+
+        # plt.tight_layout() 
+        # plt.pause(0.01)
+        # plt.savefig('/Users/kasra/Desktop/prospectus_fig/pospectus_fig{}_{}.png'.format(order , iteration))
+
+        # # plt.show()
+
+
+
+
+
+
+
 
         # if h<= 10**(-4) :
         if h<= 0.005:
@@ -793,3 +880,47 @@ def parameter_projection( circumbody_set, inbody_set, alpha , center_include = F
     else:
         
         return alpha_p
+
+def is_in_set(zonotopic_set,point):
+    """
+    Given a zonotopic set, it checks if a point is in the set.
+    Inputs:
+        zonotopic_set; which must be zonotopic
+        point; muct have the same dimension an be a one dimensional vector
+    Output:
+        True -> if the point is in the set
+        model.status -> Otherwise
+    """
+    model = Model()
+    zeta = parsi.be_in_set(model , zonotopic_set , point)
+    model.update()
+    model.setParam("OutputFlag",False)
+    model.optimize()
+    if model.status == 2:
+        del model
+        return True
+    else:
+        del model
+        return model.status
+
+def find_controller( omega , theta , state):
+    """
+    It return the controller which is in the form x = T \zeta and u = M \zeta
+    Inputs:
+        omega; which is the rci set, a zonotopic set in the form Z(x_bar,T)
+        theta; which the action set in the form Z(u_bar , M)
+        state;
+    Outputs:
+        u; Controller
+    """
+
+    model = Model()
+    zeta = parsi.be_in_set(model , omega , state)
+
+    model.setParam("OutputFlag",False)
+    model.optimize()
+    zeta_optimal = np.array([zeta[i].x for i in range(len(zeta))])
+    del model
+
+    u = theta.x + np.dot(theta.G , zeta_optimal)
+    return u
