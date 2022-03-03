@@ -34,6 +34,8 @@ def rci(system,order_max=10, general_version=True,obj=True):
         order_max; the algorithm use order_max to iterate over k. It stops iterating over k after it reaches order_max
         general_version; True -> Considers beta as a variable in the algorithm
                          False -> Does NOT consider beta. More restricted version of the algorithm
+        obj; True -> it assings mean square objective function to minimze the Euclidian distance between the rci set center and the admissable state
+             False -> There is no objective function
     Outputs:
         omega; the rci set in for of a zontope
         theta; the action set in for of a zontope
@@ -76,47 +78,68 @@ def rci(system,order_max=10, general_version=True,obj=True):
     return None , None
 
 
-def viable_limited_time(system,order_max=10,size='min',obj='include_center',algorithm='slow'):
+def viable_limited_time(system,horizon = None ,order_max=10,obj=True,algorithm='slow'):
     """
-    Given a LTV system, this function returns a limited time vaibale set and its action set.
+    Given a system, this function returns a limited time vaibale set and its action set.
+    Inputs:
+        system; which can be a LTI or LTV system
+        horizon; the number steps to be considered. If it is None, it automattically sets it to the number of time steps in the LTV system.
+        order_max; the algorithm use order_max to iterate over k. It stops iterating over k after it reaches order_max
+        obj; True -> it assings mean square objective function to minimze the Euclidian distance between the viable sets' centers and the admissable states
+             False -> There is no objective function
+        algorithm; slow -> if we want the order of the viable sets grow by number of steps
+                   fast -> if the order of viable sets remain fixed at T_order
+    Outputs:
+        omega; The sequence of viable sets, omega(0) , ... , omega(horizon+1)
+        theta; The sequence of action sets, theta(0) , ... , theta(horizon)
     """
-    number_of_steps=len(system.A)
+    if horizon == None:
+        number_of_steps=len(system.A)
+    else:
+        number_of_steps=horizon
+        
     n= system.A[0].shape[0]
     
     for order in np.arange(1, order_max, 1/n):
-        print('order',order)
-        prog=MP.MathematicalProgram()
-        var=parsi.viable_constraints(prog,system,T_order=order,algorithm=algorithm)
-        T=[var['T'][i].flatten() for i in range(number_of_steps)]
+
+        model = Model()
+        var=parsi.viable_constraints(model, system, order, horizon=horizon, algorithm=algorithm)
 
         #Defining the objective function
-        #objective function for minimizing the size of the RCI set
-        if size=='min':
-            [prog.AddQuadraticErrorCost(
-            Q=np.eye(len(T[i])),
-            x_desired=np.zeros(len(T[i])),
-            vars=T[i]) for i in range(number_of_steps)]
         #objective function for minimizing the distance between the RCI set and the set of admissible states
-        if obj=='include_center':
-            [prog.AddQuadraticErrorCost(
-            Q=np.eye(len(var['T_x'][i])),
-            x_desired=system.X[i].x,
-            vars=var['T_x'][i]) for i in range(number_of_steps)]
+        if obj==True:
+            if system.sys =='LTI':
+                X = [system.X for i in range(number_of_steps+1)] 
+            else:
+                X = [system.X[i] for i in range(number_of_steps+1)]
+
+            objective = [np.dot(var['x_bar'][step] - X[step].x , var['x_bar'][step] - X[step].x) for step in range(number_of_steps+1) ]
+            model.setObjective( sum(objective) )
 
         #Result
-        result=gurobi_solver.Solve(prog)    
-        print('result',result.is_success())
-        if result.is_success():
-            T_x=[result.GetSolution(var['T_x'][i]) for i in range(number_of_steps)]
-            M_x=[result.GetSolution(var['M_x'][i]) for i in range(number_of_steps-1)]
-            omega=[pp.zonotope(G=result.GetSolution(var['T'][i]),x=T_x[i]) for i in range(number_of_steps)]
-            theta=[pp.zonotope(G=result.GetSolution(var['M'][i]),x=M_x[i]) for i in range(number_of_steps-1)]
-            return omega,theta
+        
+        model.update()
+        model.setParam("OutputFlag",False)
+        model.optimize() 
+
+        if model.status == 2:
+
+            T_result = [ np.array( [ [var['T'][step][i][j].x for j in range( len(var['T'][step][0]) )] for i in range(len(var['T'][step])) ] ) for step in range(number_of_steps+1)]
+            x_bar_result = [ np.array( [ var['x_bar'][step][i].x for i in range(len(var['T'][step])) ] ) for step in range(number_of_steps+1) ]
+
+            M_result = [ np.array( [ [var['M'][step][i][j].x for j in range( len(var['M'][step][0])) ] for i in range(len(var['M'][step])) ] ) for step in range(number_of_steps) ]
+            u_bar_result = [ np.array( [ var['u_bar'][step][i].x for i in range(len(var['M'][step]))] ) for step in range(number_of_steps)]
+
+            omega=[pp.zonotope(G=T_result[i],x=x_bar_result[i]) for i in range(number_of_steps+1)]
+            theta=[pp.zonotope(G=M_result[i],x=u_bar_result[i]) for i in range(number_of_steps)]
+
+            return omega , theta
+
         else:
-            del prog
-            continue    
-    print("Infeasible:We couldn't find any time_limited viable set. You can change the order_max and try again.")
-    return None,None
+            del model
+
+    print('Not able to find a feasible solution for the RCI set. You can try again by increasing the order_max')
+    return None , None
 
 
 def sub_systems(system,partition_A,partition_B,disturbance=True , admissible_x=True , admissible_u=True ):

@@ -70,13 +70,18 @@ class Linear_system:
     def __repr__(self):
         return self.sys
 
-    def simulate(self,u):
+    def simulate(self,u,step=0):
         """
         Given a control input, it returns the next step by the environment.
         Input: control input for one step
         Output: state of the next step
         """
-        x_next = np.dot(self.A,self.state)+np.dot(self.B,u)+sample(self.W)
+
+        if self.sys == 'LTI':
+            x_next = np.dot(self.A,self.state)+np.dot(self.B,u)+sample(self.W)
+        else:
+            x_next = np.dot(self.A[step],self.state)+np.dot(self.B[step],u)+sample(self.W[step])
+
         self.state = x_next
         return x_next
 

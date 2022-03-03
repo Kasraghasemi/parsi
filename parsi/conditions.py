@@ -109,49 +109,97 @@ def rci_constraints(model, system, T_order, general_version=True):
     return output
 
 
-def viable_constraints(program,system,T_order=3,algorithm='slow'):
+def viable_constraints(model, system, T_order, horizon=None, algorithm='slow'):
     """
-    This function is useful in finding time-limited viable sets
+    It adds time limited viable set constraints.
+    Inputs:
+        model; which must be a gurobi model
+        system; can be either a linear LTI ot LTV system
+        horizon; the number steps to be considered. If it is None, it automattically sets it to the number of time steps in the LTV system.
+        T_order; which is scalar and is the first viable set order
+        algorithm; slow -> if we want the order of the viable sets grow by number of steps
+                   fast -> if the order of viable sets remain fixed at T_order
+    Outputs: a dictionary denoted as ourput
+        output['T']; is a list where T[step][i = 0 , 1, ..., n][0, ... , k] , where step is one more
+        output['x_bar']; is a list where x_bar[step][i = 0 , 1, ..., n] , where step is one more
+        output['M']; is a list where M[step][i = 0 , 1, ..., m][0, ... , k] 
+        output['u_bar']; is a list where u_bar[step][i = 0 , 1, ..., m]
+
     """
-    assert(system.sys=='LTV'), "The system has to be LTV (linear time variant)"
+
     from itertools import accumulate
-    number_of_steps=len(system.A)
-    n = system.A[0].shape[0]               # Matrix A is n*n
-    m = system.B[0].shape[1]               # Matrix B is n*m
-    k = round(n*T_order)
-    dist_G_numberofcolumns = [system.W[i].G.shape[1] for i in range(number_of_steps)]
-    if algorithm=='slow':
+
+    if system.sys == 'LTI':
+
+        number_of_steps= horizon if horizon is not None else 'inf'
+        
+        if number_of_steps == 'inf':
+            return rci_constraints(model, system, T_order, general_version=True)
+        
+        else:
+            n = system.A.shape[0]
+            m = system.B.shape[1]
+            W = [system.W for i in range(number_of_steps)]
+            A = [system.A for i in range(number_of_steps)]
+            B = [system.B for i in range(number_of_steps)]
+            X = [system.X for i in range(number_of_steps+1)]
+            U = [system.U for i in range(number_of_steps)]
+
+    elif system.sys == 'LTV':
+
+        number_of_steps= horizon if horizon is not None else len(system.A)
+        n = system.A[0].shape[0]               # Matrix A is n*n
+        m = system.B[0].shape[1]               # Matrix B is n*m    
+        W = [system.W[i] for i in range(number_of_steps)]
+        A = [system.A[i] for i in range(number_of_steps)]
+        B = [system.B[i] for i in range(number_of_steps)]
+        X = [system.X[i] for i in range(number_of_steps+1)]
+        U = [system.U[i] for i in range(number_of_steps)]
+    
+    k = int( round(n*T_order) )
+    
+    dist_G_numberofcolumns = [ W[i].G.shape[1] for i in range(number_of_steps) ]
+
+    if algorithm =='slow':
         dist_G_numberofcolumns.insert(0,k)
         p = list(accumulate(dist_G_numberofcolumns))
+    else: 
+        p = [k]* (number_of_steps+1)
     
-    #Defining Variables
-    T=[program.NewContinuousVariables( n, p[i], 'T') for i in range(number_of_steps)] if algorithm=='slow' \
-        else [program.NewContinuousVariables( n, k, 'T') for i in range(number_of_steps)]               #T is n*p if algorithm is defined as slow, otherwise n*k
-    M=[program.NewContinuousVariables( m, p[i], 'M') for i in range(number_of_steps-1)] if algorithm=='slow' \
-        else [program.NewContinuousVariables( m, k, 'T') for i in range(number_of_steps)]                #M is m*k
-    T_x=[program.NewContinuousVariables( n,'T_center') for i in range(number_of_steps)]               #T_x is the x_bar in the paper
-    M_x=[program.NewContinuousVariables( m,'M_center') for i in range(number_of_steps-1)]               #M_x is the u_bar in the paper
+    # Defining Variables
 
-    #Defining Constraints
-    left_side = [np.concatenate( (np.dot(system.A[i],T[i])+np.dot(system.B[i],M[i]) , system.W[i].G) ,axis=1) for i in range(number_of_steps-1)]               #[AT+BM,W]
-    right_side = T[1:] if algorithm=='slow' else [np.concatenate( ( np.zeros((n,dist_G_numberofcolumns[i-1])) ,T[i] ),axis=1) for i in range(1,number_of_steps)]             #[T] if algorithm=='slow' , [0,T] if algorithm=='fast'
-    [program.AddLinearConstraint(np.equal(left_side[i],right_side[i],dtype='object').flatten()) for i in range(number_of_steps-1)]             #[A(t)T(t)+B(t)M(t),W(t)]==[T(t+1)]
+    T = [np.array( [ [ model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for ـ in range(p[step]) ] for ـ in range(n)] ) for step in range(number_of_steps+1)]
+    x_bar = [np.array( [ model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for ـ in range(n)] ) for step in range(number_of_steps+1)]
+
+    M = [np.array( [ [ model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for ـ in range(p[step]) ] for ـ in range(m)] ) for step in range(number_of_steps)]
+    u_bar = [np.array( [ model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for ـ in range(m)] ) for step in range(number_of_steps)]
+
+    model.update()
+
+    # Defining constraints [AT(t)+BM(t) ,W(t)] = T(t+1) and A x_bar(t) + B u_bar(t) + d_bar(t) = x_bar(t+1)
+
+    # [AT(t)+BM(t) ,W(t)] = T(t+1)
+    left_side_constraint = [ np.hstack( (np.dot( A[step] , T[step]) + np.dot( B[step] , M[step]) , W[step].G)) for step in range(number_of_steps) ]
+    right_side_constraint = [T[step] for step in range(1, number_of_steps+1) ] if algorithm =='slow' \
+                            else [ np.hstack(( np.zeros((n,dist_G_numberofcolumns[step-1])) , T[step] )) for step in range(1, number_of_steps+1) ]
+
+    for step in range(number_of_steps):
+        model.addConstrs( (left_side_constraint[step][i][j]==right_side_constraint[step][i][j] for i in range(n) for j in range(p[step+1])  ))
+
+    # A x_bar(t) + B u_bar(t) + d_bar(t) = x_bar(t+1)
+    model.addConstrs( ( (np.dot(A[step] , x_bar[step]) + np.dot(B[step] , u_bar[step]) + W[step].x)[i] == x_bar[step+1][i] for i in range(n) for step in range(number_of_steps) ) )
+    model.update()
 
     #Implementing Hard Constraints over control input and state space
-    if system.X!=None:
-        [pp.zonotope_subset(program, pp.zonotope(G=T[i],x=T_x[i]) , system.X[i] ) for i in range(number_of_steps)]
-    if system.U!=None:
-        [pp.zonotope_subset(program, pp.zonotope(G=M[i],x=M_x[i]) , system.U[i] ) for i in range(number_of_steps-1)]
-    
-    #Constraints for the centers
-    center=[np.equal( np.dot(system.A[i] , T_x[i]) + np.dot(system.B[i] , M_x[i]) + system.W[i].x , T_x[i+1] ,dtype='object').flatten() for i in range(number_of_steps-1)]
-    [program.AddLinearConstraint(center[i]) for i in range(number_of_steps-1)]              #A*x_bar+ B*u_bar +w_bar==x_bar       #IT WILL MAKE PROBLEM WHEN IT BECOMES TRUE!
+    [pp.zonotope_subset(model, pp.zonotope(G=T[step],x=x_bar[step]) , X[step] ,solver='gurobi') for step in range(number_of_steps+1) ]
+    [pp.zonotope_subset(model, pp.zonotope(G=M[step],x=u_bar[step]) , U[step] ,solver='gurobi') for step in range(number_of_steps) ]
+    model.update()
 
     output={
         'T':T,
-        'T_x': T_x,
+        'x_bar': x_bar,
         'M':M,
-        'M_x': M_x
+        'u_bar': u_bar
     }    
 
     return output
