@@ -15,7 +15,7 @@ except:
 from timeit import default_timer as timer
 
 
-N = 10000              # number of points
+N = 10              # number of points
 raduis = 10             # threshold for being neighbor
 landa = 0.01             # affects couplings between subsystems
 delta_t = 0.2            # time step for discretizing the dynamics

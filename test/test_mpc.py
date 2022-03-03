@@ -17,16 +17,13 @@ U=pp.zonotope(G=np.eye(1),x=[0])
 
 #Defining the system
 sys=parsi.Linear_system(A,B,W=W,X=X,U=U)
-sys.beta=0.5
-sys.E=True
-sys.rci(size='min')
-print('omega',sys.omega.G.shape,sys.omega.G)
+sys.rci()
 sys.state=parsi.sample(sys.omega)
 pp.visualize([sys.X,sys.omega])
 path=sys.state.reshape(-1,1)
 for step in range(5000):
     #Finding the controller
-    u=parsi.mpc(sys,horizon=1,x_desired='origin')
+    u , _ , _ =parsi.mpc(sys,horizon=1,x_desired='origin')
     state= sys.simulate(u)
     path=np.concatenate((path,state.reshape(-1,1)) ,axis=1)
     print(state)

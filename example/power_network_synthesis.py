@@ -75,12 +75,13 @@ path= np.array( [sub_sys[i].state for i in range(number_of_subsystems)] ).reshap
 fig, axs = plt.subplots(number_of_subsystems)
 for i in range(number_of_subsystems):
     # sub_sys[i].X.color='red'
-
-    pp.visualize([sub_sys[i].X,sub_sys[i].omega], ax = axs[i],fig=fig, title='',equal_axis=True)
+    omega_reduced_order = pp.pca_order_reduction( sub_sys[i].omega ,desired_order=6)
+    pp.visualize([sub_sys[i].X, omega_reduced_order ], ax = axs[i],fig=fig, title='',equal_axis=True)
     
 for step in range(50):
     #Finding the controller
-    u=[parsi.mpc(sub_sys[i],horizon=1,x_desired='origin') for i in range(number_of_subsystems)]
+    u= [ parsi.find_controller( sub_sys[i].omega , sub_sys[i].theta , sub_sys[i].state ) for i in range(number_of_subsystems)]
+    # u=[parsi.mpc(sub_sys[i],horizon=1,x_desired='origin') for i in range(number_of_subsystems)]
     state= np.array([sub_sys[i].simulate(u[i]) for i in range(number_of_subsystems)])
     path=np.concatenate((path,state.reshape(-1,1)) ,axis=1)
     for i in range(number_of_subsystems):

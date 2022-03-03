@@ -12,6 +12,8 @@ try:
     import parsi
 except:
     raise ModuleNotFoundError("parsi package is not installed properly")
+from gurobipy import *
+
 
 delta_t=2
 disturbance=0.002
@@ -34,7 +36,7 @@ for i in range(number_of_subsystems):
             A_ij[j]= np.array([[0 , 0],[ delta_t*Kp_i[i]*Ks_ij[i][j]/(2*np.pi*Tp_i[i]) ,0]])
     X=pp.zonotope(x=np.zeros(2),G=np.array([[0.3,0],[0,0.3]]))
     U=pp.zonotope(x=np.zeros(1),G=np.array([[1]]))
-    W=pp.zonotope(x=np.zeros(2),G=np.array([[0.000000000000000000000001 ,0 ],[0 ,-delta_t*Kp_i[i]/Tp_i[i]]])*disturbance )
+    W=pp.zonotope(x=np.zeros(2),G=np.array([[0.1 ,0 ],[0 ,-delta_t*Kp_i[i]/Tp_i[i]]])*disturbance )
     sub_sys.append(parsi.Linear_system(A[i],B[i],W=W,X=X,U=U))
 
 #omega,theta = parsi.decentralized_rci(sub_sys,size='min')
@@ -48,26 +50,37 @@ for i in range(number_of_subsystems):
 
     sub_sys[i].state=parsi.sample(sub_sys[i].omega)
 
-path= np.array( [sub_sys[i].state for i in range(number_of_subsystems)] ).reshape(-1,1)
 
-cols=5
-fig, axs = plt.subplots(int(ceil(number_of_subsystems / cols)),cols)
-for i in range(number_of_subsystems):
-    sub_sys[i].X.color='red'
-    r=i//cols
-    c=i%cols
-    pp.visualize([sub_sys[i].X,omega[i]], ax = axs[r,c],fig=fig, title='',equal_axis=True)
+# Plotting 
+
+# path= np.array( [sub_sys[i].state for i in range(number_of_subsystems)] ).reshape(-1,1)
+
+# cols=5
+# fig, axs = plt.subplots(int(ceil(number_of_subsystems / cols)),cols)
+# for i in range(number_of_subsystems):
+#     sub_sys[i].X.color='red'
+#     r=i//cols
+#     c=i%cols
+#     pp.visualize([sub_sys[i].X,omega[i]], ax = axs[r,c],fig=fig, title='',equal_axis=True)
 
 for step in range(50):
-    #Finding the controller
-    u=[parsi.mpc(sub_sys[i],horizon=1,x_desired='origin') for i in range(number_of_subsystems)]
-    state= np.array([sub_sys[i].simulate(u[i]) for i in range(number_of_subsystems)])
-    path=np.concatenate((path,state.reshape(-1,1)) ,axis=1)
-    for i in range(number_of_subsystems):
-        r=i//cols
-        c=i%cols
-        axs[r,c].plot(path[2*i,:],path[2*i+1,:],color='b')
-    plt.pause(0.02)
 
-plt.tight_layout()
-plt.show()  
+    #Finding the controller
+    zeta_optimal=[]
+    u = [parsi.find_controller( sub_sys[i].omega , sub_sys[i].theta , sub_sys[i].state) for i in range(number_of_subsystems) ]        
+    state= np.array([sub_sys[i].simulate(u[i]) for i in range(number_of_subsystems)])
+
+    for i in range(number_of_subsystems):
+        assert parsi.is_in_set( sub_sys[i].omega , state[i] ) == True
+
+# Plotting
+
+    # path=np.concatenate((path,state.reshape(-1,1)) ,axis=1)
+    # for i in range(number_of_subsystems):
+    #     r=i//cols
+    #     c=i%cols
+    #     axs[r,c].plot(path[2*i,:],path[2*i+1,:],color='b')
+    # plt.pause(0.02)
+
+# plt.tight_layout()
+# plt.show()  
