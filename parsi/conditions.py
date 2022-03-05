@@ -311,15 +311,16 @@ def rci_cen_synthesis_decen_controller_constraints(model,list_system,T_order):
 
     # adding Correctness constraints
     alpha_u=[ pp.zonotope_subset(model, pp.zonotope(x=np.array(var[sys]['u_bar']).T,G= var[sys]['M']) , list_system[sys].param_set_U ,alpha='vector',solver='gurobi')[2] for sys in range(sys_number)]
-    [model.addConstrs((alpha_u[sys][i] == list_system[sys].alpha_u[i] for i in range(len(alpha_u[sys]))) ) for sys in range(sys_number)]
+    [model.addConstrs((alpha_u[sys][i] == list_system[sys].alpha_u[i] for i in range(len(alpha_u[sys]))) ) for sys in range(sys_number)] #THIS MIGHT BE CONSTARINT I NEED O FINC THE DUAL
 
     alpha_x=[ pp.zonotope_subset(model, pp.zonotope(x=np.array(var[sys]['x_bar']).T,G=var[sys]['T']) , list_system[sys].param_set_X ,alpha='vector',solver='gurobi' )[2] for sys in range(sys_number)]
-    [model.addConstrs((alpha_x[sys][i] == list_system[sys].alpha_x[i] for i in range(len(alpha_x[sys]))) ) for sys in range(sys_number)]
+    [model.addConstrs((alpha_x[sys][i] == list_system[sys].alpha_x[i] for i in range(len(alpha_x[sys]))) ) for sys in range(sys_number)] #THIS MIGHT BE CONSTARINT I NEED O FINC THE DUAL
 
     model.update()
 
     for sys in range(sys_number):
-        var[sys]['alpha_x'] = alpha_x[sys]
+        # By not chooing list_system[sys].alpha_x and list_system[sys].alpha_u, I am isolating the defined parameters
+        var[sys]['alpha_x'] = alpha_x[sys] 
         var[sys]['alpha_u'] = alpha_u[sys]
 
     # returning the disturbance sets to their original value for all subsystems
@@ -329,22 +330,46 @@ def rci_cen_synthesis_decen_controller_constraints(model,list_system,T_order):
     return var
 
 
-def hausdorff_distance_condition(model,zon1,zon2,alpha):
+def hausdorff_distance_condition(model,zon1,zon2,alpha=None):
     """
-    Inputs: two zonotope
+    This function adds a variable to the optimization problem which if it is minimzed in the objective function it would be equal to directed hausdorff distance
+    Inputs: 
+        model; must be a gurobi model
+        zon1; zonotopic set
+        zon2; zonotopic set             Note: zon1 \subseteq zon2 \oplus z(0, d*I)
+        alpha; -> None : when the zon2 set is not paramterized and has no variables, because variables cannot be on the right hand side of \subseteq
+               -> the paramters of zon2 for the parameterized set zon2.G * Diag(alpha)
     Outputs: d
     """
-    d=model.addVar(lb= 0, ub= GRB.INFINITY)             # The radius in the directed hausdorff distance
-    circumbody=pp.zonotope(x=zon2.x , G= np.concatenate( ( zon2.G,np.eye(zon2.G.shape[0])) , axis=1) )                # circumbody = zon2 \oplus zonotope(x=0, G= d* eye)
+    # circumbody = zon2 \oplus zonotope(x=0, G= d* eye) , where d is a variable which is the radius in the directed hausdorff distance
+
+    # defining d, which the radius in the directed hausdorff distance
+    d=model.addVar(lb= 0, ub= GRB.INFINITY)
+    model.update()
+
+    circumbody=pp.zonotope(x=zon2.x , G= np.concatenate( ( zon2.G,np.eye(zon2.G.shape[0])) , axis=1) )  
+
+    # zon1 \subseteq circumbody * Diag(alpha)
     _,_,scale=pp.zonotope_subset(model,zon1,circumbody,alpha='vector',solver='gurobi')
 
-    alpha_i_constraints = [model.addConstr(scale[i] == alpha[i])  for i in range(zon2.G.shape[1])]
-
-    model.addConstrs((scale[i] == d  for i in range(zon2.G.shape[1],circumbody.G.shape[1]) ))
+    # if alpha is None, first number_of_columns_of_zon2 of scale must be equal to 1 
+    # otherwise, it should be equal to alpha
+    if alpha is not None:
+        alpha_i_constraints = [model.addConstr(scale[i] == alpha[i])  for i in range(zon2.G.shape[1])]
+    else:
+        alpha_i_constraints = [model.addConstr(scale[i] == 1)  for i in range(zon2.G.shape[1])]
     
-    # model.setObjective( d , GRB.MINIMIZE )              # minimizing d to find the smallest raduis
+    # the rest of elements of scale must be equal to d
+    model.addConstrs((scale[i] == d  for i in range(zon2.G.shape[1],circumbody.G.shape[1]) ))
     model.update()
     
+    # d should be minimzed in the objective function to find the minimum possible value for it
+    # model.setObjective( d , GRB.MINIMIZE )        
+    # NOTE: if you add the objective funciton here, later on if you set the objective funciton again, it will overwrite this one.
+    
+
+    # TODO: we might not need to pass alpha_i_constraints
+
     return d,alpha_i_constraints
 
 
