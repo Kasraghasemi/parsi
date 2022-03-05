@@ -113,13 +113,13 @@ class Linear_system:
         if 'u' in parameterized_zonotope:
             self.alpha_u_max=alpha_max(parameterized_zonotope['u'],self.U,solver='gurobi')
 
-    def parameterized_set_initialization(self,initial_guess='nominal',order_max=10,size='min',obj='include_center'):
+    def parameterized_set_initialization(self,order_max=10):
         """
         It puts parameterized sets in self.param_set_X and self.param_set_U
         """
-        X_i,U_i = rci_decentralized_initialization([self],initial_guess=initial_guess,order_max=order_max)
-        self.param_set_X=X_i[0]                 # ToDo: Check if it needs to change to X_i
-        self.param_set_U=U_i[0]                 # ToDo: Check if it needs to change to U_i
+        omega , theta = self.rci( order_max=order_max)  
+        self.param_set_X = omega            
+        self.param_set_U = theta                 
 
     def mapping_alpha_to_feasible_set(self):
         """

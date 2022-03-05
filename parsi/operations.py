@@ -196,7 +196,7 @@ def decentralized_rci(list_system,method='centralized',initial_guess='nominal',s
         omega,theta = decentralized_rci_centralized_drake(list_system,initial_guess=initial_guess,size=size,order_max=order_max)
 
     elif solver=='gurobi' and method=='centralized':
-        omega,theta,_,_=decentralized_rci_centralized_gurobi(list_system,initial_guess=initial_guess,size=size,order_max=order_max)
+        omega,theta,_,_=decentralized_rci_centralized_synthesis(list_system,initial_guess=initial_guess,size=size,order_max=order_max)
     
     for i in range(len(list_system)):
         list_system[i].omega=omega[i]
@@ -298,7 +298,7 @@ def decentralized_rci_centralized_drake(sys,initial_guess='nominal',size='min',o
     return None,None
 
 
-def decentralized_rci_centralized_gurobi(list_system,initial_guess='nominal',size='min',order_max=30):
+def decentralized_rci_centralized_synthesis(list_system,size='min',order_max=30):
 
     number_of_subsys=len(list_system)
     n=[len(list_system[i].A) for i in range(number_of_subsys)]
@@ -310,22 +310,22 @@ def decentralized_rci_centralized_gurobi(list_system,initial_guess='nominal',siz
         
         model= Model()
 
-        xbar,T,ubar,M, alpha_x,alpha_u= parsi.rci_decentralized_constraints_gurobi(model,list_system,T_order=order,initial_guess='nominal')
+        var = parsi.rci_cen_synthesis_decen_controller_constraints(model,list_system,order)
 
         # Objective function
         if size == 'min' or size == 'max':
+            obj = sum( [sum(var[sys]['alpha_x']) for sys in range(number_of_subsys)] )
             
-            obj = sum( [sum(alpha_x[i]) for i in range(number_of_subsys)] )
             if size == 'max':
                 obj = -1 * obj 
 
         elif type(size) == np.ndarray:
             # This will find the maximum alpha (it is for drawing)
-            obj = np.dot( size , np.array(alpha_x[0][0: len(size)]) )
+            obj = np.dot( size , np.array(var[0]['alpha_x'][0: len(size)]) )
 
         else:
             obj = 1 
-
+        
         model.setObjective( obj , GRB.MINIMIZE )
         model.update()
 
@@ -339,15 +339,16 @@ def decentralized_rci_centralized_gurobi(list_system,initial_guess='nominal',siz
             
             del model
             continue
-        T_result= [ np.array( [ [ T[sys][i][j].X for j in range(len(T[sys][i])) ] for i in range(n[sys]) ] ) for sys in range(number_of_subsys) ]
-        T_x_result = [ np.array( [ xbar[sys][i].X for i in range(n[sys]) ] ) for sys in range(number_of_subsys) ]
-        alfa_x = [ np.array( [ alpha_x[sys][i].X for i in range(len(alpha_x[sys])) ] ) for sys in range(number_of_subsys)]
+
+        T_result= [ np.array( [ [ var[sys]['T'][i][j].X for j in range(len(var[sys]['T'][i])) ] for i in range(n[sys]) ] ) for sys in range(number_of_subsys) ]
+        T_x_result = [ np.array( [ var[sys]['x_bar'][i].X for i in range(n[sys]) ] ) for sys in range(number_of_subsys) ]
+        alfa_x = [ np.array( [ var[sys]['alpha_x'][i].X for i in range(len( var[sys]['alpha_x'])) ] ) for sys in range(number_of_subsys)]
         omega= [ pp.zonotope(x=T_x_result[sys] , G=T_result[sys]) for sys in range(number_of_subsys) ] 
 
 
-        M_result= [ np.array( [ [ M[sys][i][j].X for j in range(len(M[sys][i])) ] for i in range(m[sys]) ] ) for sys in range(number_of_subsys) ]
-        M_x_result= [ np.array( [ ubar[sys][i].X for i in range(m[sys]) ] ) for sys in range(number_of_subsys) ]
-        alfa_u = [ np.array( [ alpha_u[sys][i].X for i in range(len(alpha_u[sys])) ] ) for sys in range(number_of_subsys)]
+        M_result= [ np.array( [ [ var[sys]['M'][i][j].X for j in range(len(var[sys]['M'][i])) ] for i in range(m[sys]) ] ) for sys in range(number_of_subsys) ]
+        M_x_result= [ np.array( [ var[sys]['u_bar'][i].X for i in range(m[sys]) ] ) for sys in range(number_of_subsys) ]
+        alfa_u = [ np.array( [ var[sys]['alpha_u'][i].X for i in range(len(var[sys]['alpha_u'])) ] ) for sys in range(number_of_subsys)]
         theta= [ pp.zonotope(x=M_x_result[sys] , G=M_result[sys]) for sys in range(number_of_subsys) ] 
         
         for i in range(number_of_subsys):

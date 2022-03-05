@@ -16,6 +16,7 @@ try:
     import parsi
 except:
     print('Error: parsi package is not installed correctly') 
+from copy import deepcopy
 
 def rci_constraints(model, system, T_order, general_version=True):
     """
@@ -257,71 +258,75 @@ def mpc_constraints(model,system,horizon=1,hard_constraints=True):
     return x,u
 
 
-def rci_decentralized_constraints_gurobi(model,list_system,T_order=3,initial_guess='nominal'):
+def rci_cen_synthesis_decen_controller_constraints(model,list_system,T_order):
     """
+    # Note: general_version MUST be False, otherwise the probelm becomes non-convex
+    This function will add required constraints for centralized synthesis of decentralized controllers for rci sets.
+    Inputs:
+        model; a gurobi model
+        list_system; must be a list of linear LTI systems
+        T_order; desired order for the RCI sets. For now, all subsystems have the same order
+        initial_guess;
+    Outputs:
+        var; which is a dictionary containing the followings:
+            x_bar; Center of the rci sets, x_bar[system][i=0 , ... , n]
+            T; Generator of the rci, , T[system][i=0 , ... , n][0,...,k]
+            u_bar; Center of the action set
+            M; Generator of the action set, M[system][i=0 , ... , m][0,...,k]
+            alpha_x; parameters for the parameterized sets in state space alpha_x[system][0,...,d]
+            alpha_u; parameters for the parameterized sets in control space alpha_u[system][0,...,b]
     """
 
     sys_number = len(list_system)
-    n=[list_system[i].A.shape[0] for i in range(sys_number)]
-    m=[list_system[i].B.shape[1] for i in range(sys_number)]
-    k = [int(round(n[i]*T_order)) for i in range(sys_number)] 
+    # n=[list_system[i].A.shape[0] for i in range(sys_number)]
+    # m=[list_system[i].B.shape[1] for i in range(sys_number)]
+    # k = [int(round(n[i]*T_order)) for i in range(sys_number)] 
 
-    # Initilizing the paramterize set
-    if any([sys.omega==None for sys in list_system]) and any([sys.theta==None for sys in list_system]) :
-        X_i,U_i = parsi.rci_decentralized_initialization(list_system,initial_guess='nominal',order_max=10)
-    else:
-        X_i=[sys.omega for sys in list_system]
-        U_i=[sys.theta for sys in list_system]
-
-    # Adding Variables
-
-    T= [ np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(n[sys])] ) for sys in range(sys_number)]
-    M= [ np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(m[sys])] ) for sys in range(sys_number)]
-
-    xbar=[ np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(n[sys])]) for sys in range(sys_number)]
-    ubar=[ np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(m[sys])]) for sys in range(sys_number)]
     
     for sys in range(sys_number):
-        # Adding hard constraints over state and control input spaces
-        if list_system[sys].U != None:
-            pp.zonotope_subset(model, pp.zonotope(x=np.array(ubar[sys]).T,G= M[sys]) , list_system[sys].U ,solver='gurobi')
-            
-        if list_system[sys].X != None:
-            pp.zonotope_subset(model, pp.zonotope(x=np.array(xbar[sys]).T,G=T[sys]) , list_system[sys].X ,solver='gurobi' )
-            
-    # Adding Correctness constraints
-    alpha_u=[ pp.zonotope_subset(model, pp.zonotope(x=np.array(ubar[sys]).T,G= M[sys]) , U_i[sys] ,alpha='vector',solver='gurobi')[2] for sys in range(sys_number)]
-    [model.addConstrs((alpha_u[sys][i] >= 0 for i in range(len(alpha_u[sys]))) ) for sys in range(sys_number)]
-    alpha_x=[ pp.zonotope_subset(model, pp.zonotope(x=np.array(xbar[sys]).T,G=T[sys]) , X_i[sys] ,alpha='vector',solver='gurobi' )[2] for sys in range(sys_number)]
-    [model.addConstrs((alpha_x[sys][i] >= 0 for i in range(len(alpha_x[sys]))) ) for sys in range(sys_number)]
+
+        # Setting the paamterized sets for each subsystem
+        list_system[sys].parameterized_set_initialization()
+
+        # Defining the parameters
+        dim_alpha_x = list_system[sys].param_set_X.G.shape[1]
+        dim_alpha_u = list_system[sys].param_set_U.G.shape[1]
+
+        list_system[sys].alpha_x = np.array([model.addVar(lb= 0, ub= GRB.INFINITY) for _ in range(dim_alpha_x)])
+        list_system[sys].alpha_u = np.array([model.addVar(lb= 0, ub= GRB.INFINITY) for _ in range(dim_alpha_u)])
+    
+    model.update()
+
+    # breaking the coupling among subsystems
+    disturb = parsi.break_subsystems(list_system)
+    
+    real_disturbance_sets = [ deepcopy(sys.W) for sys in list_system ] 
+
+    for sys in range(sys_number):
+        list_system[sys].W = disturb[sys]
+
+    # adding rci sonstraints; Satisfiability and Validity
+    # var = parsi.concate_dictionaries( [ rci_constraints(model, list_system[sys], T_order, general_version=True) for sys in range(sys_number)] )
+    var = [ rci_constraints(model, list_system[sys], T_order, general_version=False) for sys in range(sys_number)]      # Note: general_version MUST be False, otherwise the probelm becomes non-convex
+
+    # adding Correctness constraints
+    alpha_u=[ pp.zonotope_subset(model, pp.zonotope(x=np.array(var[sys]['u_bar']).T,G= var[sys]['M']) , list_system[sys].param_set_U ,alpha='vector',solver='gurobi')[2] for sys in range(sys_number)]
+    [model.addConstrs((alpha_u[sys][i] == list_system[sys].alpha_u[i] for i in range(len(alpha_u[sys]))) ) for sys in range(sys_number)]
+
+    alpha_x=[ pp.zonotope_subset(model, pp.zonotope(x=np.array(var[sys]['x_bar']).T,G=var[sys]['T']) , list_system[sys].param_set_X ,alpha='vector',solver='gurobi' )[2] for sys in range(sys_number)]
+    [model.addConstrs((alpha_x[sys][i] == list_system[sys].alpha_x[i] for i in range(len(alpha_x[sys]))) ) for sys in range(sys_number)]
 
     model.update()
 
-    # Computing the disturbance set
-    disturb=[]
-    for i in range(sys_number):
-        disturb.append(list_system[i].W)
-    for i in range(sys_number):
-        for j in range(sys_number):
-            if j in list_system[i].A_ij:
-                w=pp.zonotope(G= np.dot(np.dot( list_system[i].A_ij[j], X_i[j].G), np.diag(alpha_x[j]) ) , x= np.dot( list_system[i].A_ij[j], X_i[j].x))
-                disturb[i] = disturb[i]+ w
-            if j in list_system[i].B_ij:
-                w=pp.zonotope(G= np.dot(np.dot( list_system[i].B_ij[j], U_i[j].G), np.diag(alpha_u[j]) ) , x= np.dot( list_system[i].B_ij[j], U_i[j].x))
-                disturb[i] = disturb[i]+ w
-
-    # Adding main rci constraints: [AT+BM,W]=[0,T] and A x_bar + B u_bar + d_bar = x_bar
     for sys in range(sys_number):
+        var[sys]['alpha_x'] = alpha_x[sys]
+        var[sys]['alpha_u'] = alpha_u[sys]
 
-        left_side = np.concatenate (( np.dot(list_system[sys].A,T[sys]) + np.dot(list_system[sys].B,M[sys])  , disturb[sys].G) ,axis=1)
-        right_side = np.concatenate(   ( np.zeros(( list_system[sys].A.shape[0],disturb[sys].G.shape[1] )), T[sys])  , axis=1)
-        model.addConstrs(   ( left_side[i,j] == right_side[i,j]  for i in range(n[sys]) for j in range(disturb[sys].G.shape[1]+k[sys]))     )  
-        
-        center = np.dot(list_system[sys].A ,np.array([xbar[sys]]).T ) + np.dot(list_system[sys].B ,np.array([ubar[sys]]).T ) + disturb[sys].x
-        model.addConstrs( center[i][0] == xbar[sys][i] for i in range(n[sys]))
-    model.update()
+    # returning the disturbance sets to their original value for all subsystems
+    for sys in range(sys_number):
+        list_system[sys].W = real_disturbance_sets[sys]
     
-    return xbar,T,ubar,M, alpha_x,alpha_u
+    return var
 
 
 def hausdorff_distance_condition(model,zon1,zon2,alpha):
@@ -868,3 +873,4 @@ def be_in_set( model , zonotope_set ,point):
     model.update()
 
     return zeta
+
