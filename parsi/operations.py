@@ -144,10 +144,24 @@ def viable_limited_time(system,horizon = None ,order_max=10,obj=True,algorithm='
 
 def sub_systems(system, partition_A, partition_B, disturbance=True, admissible_x=True, admissible_u=True ):
     """
-    The input is a large system and partition over system.A 
-    example: [2,3,1] creates A_{11}=2*2, A_{22}=3*3, and A_{33}=1*1
+    This function gets a single linear system and returns a network of connected linear systems
+    Inputs:
+        system; a LTI system
+        partition_A; partition over aggregated A matrix, for example: [2,3,1] creates A_{11}=2*2, A_{22}=3*3, and A_{33}=1*1
+        partition_B; partition over aggregated B matrix
+        disturbance; 
+            -> True: it over approximates the set and uses decomposition to decompose by subsystems. NOTE that it need Drake.
+            -> list of zonotopic sets in order of subsystems
+        admissible_x;
+            -> True: uses decomposition to decompose by subsystems. NOTE that it need Drake.
+            -> list of zonotopic sets in order of subsystems
+        admissible_u
+            -> True: uses decomposition to decompose by subsystems. NOTE that it need Drake.
+            -> list of zonotopic sets in order of subsystems
+    Outputs:
+        sys; list of subsystems
     """
-    assert(len(partition_A)==len(partition_B)), "length of vector partition_A has to be equal to the length of the vector partition_B"
+    
     from itertools import accumulate
     number_of_subsys=len(partition_A)
     par_accum_A=list(accumulate(partition_A))
@@ -188,117 +202,24 @@ def sub_systems(system, partition_A, partition_B, disturbance=True, admissible_x
     return sys
 
 
-def decentralized_rci(list_system,method='centralized',initial_guess='nominal',size='min',solver='drake',order_max=30):
-    """
-    Given a set of coupled linear sub-systems
-    """
-    if solver=='drake' and method=='centralized':
-        omega,theta = decentralized_rci_centralized_drake(list_system,initial_guess=initial_guess,size=size,order_max=order_max)
-
-    elif solver=='gurobi' and method=='centralized':
-        omega,theta,_,_=decentralized_rci_centralized_synthesis(list_system,initial_guess=initial_guess,size=size,order_max=order_max)
-    
-    for i in range(len(list_system)):
-        list_system[i].omega=omega[i]
-        list_system[i].theta=theta[i]
-
-    return omega,theta
-
-
-def decentralized_rci_centralized_drake(sys,initial_guess='nominal',size='min',order_max=10):
-    from copy import copy,deepcopy
-    for i in sys:
-        i.E=False               #Setting all E=False
-    
-    number_of_subsys= len(sys)
-
-    if initial_guess=='nominal':
-        X_i,U_i=[],[]
-        for i in range(number_of_subsys):
-            omega,theta = rci(sys[i])
-            X_i.append(omega)
-            U_i.append(theta)
-        
-        number_of_columns=[sys[i].W.G.shape[1] for i in range(number_of_subsys)]
-        for i in range(number_of_subsys):
-            for j in range(number_of_subsys):
-                if j in sys[i].A_ij:
-                    number_of_columns[i]=number_of_columns[i]+ X_i[j].G.shape[1]
-                if j in sys[i].B_ij:
-                    number_of_columns[i]=number_of_columns[i]+ U_i[j].G.shape[1]
-        
-    n=[len(sys[i].A) for i in range(number_of_subsys)]
-    disturb=[]
-    for i in range(number_of_subsys):
-        disturb.append(sys[i].W)
-    W_i=deepcopy(disturb)
-
-    for order in np.arange(1, order_max, 1/max(n)):
-        
-        prog= MP.MathematicalProgram()
-        
-        #Disturbance over each sub-system
-        d_aug=[ prog.NewContinuousVariables( n[i], number_of_columns[i], 'd') for i in range(number_of_subsys) ]
-        d_aug_x=[prog.NewContinuousVariables( n[i],'d_center') for i in range(number_of_subsys) ]
-
-        #setting the disturbance for each sub-system
-        for i in range(number_of_subsys):                
-            sys[i].W = pp.zonotope(G=d_aug[i],x=d_aug_x[i])
-
-        #rci_constraints
-        var= [parsi.rci_constraints(prog,sys[i],T_order=order) for i in range(number_of_subsys)]
-
-        #Correctness Criteria
-        alpha_x = [pp.zonotope_subset(prog,pp.zonotope(G= var[i]['T'], x=var[i]['T_x']), X_i[i] , alpha='vector')[2] for i in range(number_of_subsys)]
-        [prog.AddBoundingBoxConstraint(0,np.inf,alpha_x[i]) for i in range(number_of_subsys)]
-        alpha_u = [pp.zonotope_subset(prog,pp.zonotope(G= var[i]['M'], x=var[i]['M_x']), U_i[i] , alpha='vector')[2] for i in range(number_of_subsys)]
-        [prog.AddBoundingBoxConstraint(0,np.inf,alpha_u[i]) for i in range(number_of_subsys)]
-
-        #Computing the disturbance set
-        
-        for i in range(number_of_subsys):
-            for j in range(number_of_subsys):
-                if j in sys[i].A_ij:
-                    w=pp.zonotope(G= np.dot(np.dot( sys[i].A_ij[j], X_i[j].G), np.diag(alpha_x[j]) ) , x= np.dot( sys[i].A_ij[j], X_i[j].x))
-                    disturb[i] = disturb[i]+ w
-                if j in sys[i].B_ij:
-                    w=pp.zonotope(G= np.dot(np.dot( sys[i].B_ij[j], U_i[j].G), np.diag(alpha_u[j]) ) , x= np.dot( sys[i].B_ij[j], U_i[j].x))
-                    disturb[i] = disturb[i]+ w
-        print("THE ORDER IS=",order)
-        
-        #Disturbance
-        [prog.AddLinearConstraint(np.equal(d_aug_x[i], disturb[i].x,dtype='object').flatten()) for i in range(number_of_subsys)]
-        [prog.AddLinearConstraint(np.equal(d_aug[i], disturb[i].G,dtype='object').flatten()) for i in range(number_of_subsys)]
-
-        #Objective function
-        if size=='min':
-            [prog.AddLinearCost(np.ones(len(alpha_x[i])), 0, alpha_x[i]) for i in range(number_of_subsys)]
-        elif size=='max':
-            [prog.AddLinearCost(-1 *np.ones(len(alpha_x[i])), 0, alpha_x[i]) for i in range(number_of_subsys)]
-
-        #Result
-        result=gurobi_solver.Solve(prog)    
-        print('result',result.is_success())
-        if result.is_success():
-            T_x=[result.GetSolution(var[i]['T_x']) for i in range(number_of_subsys)]
-            M_x=[result.GetSolution(var[i]['M_x']) for i in range(number_of_subsys)]
-            omega=[pp.zonotope(G=result.GetSolution(var[i]['T']),x=T_x[i]) for i in range(number_of_subsys)]
-            theta=[pp.zonotope(G=result.GetSolution(var[i]['M']),x=M_x[i]) for i in range(number_of_subsys)]
-
-            for i in range(number_of_subsys):
-                sys[i].W=W_i[i]
-
-            return omega,theta
-        else:
-            del prog
-            disturb=deepcopy(W_i)
-            #print('W_i2',W_i[0].G.shape)
-            continue    
-    print("Infeasible:We couldn't find a set of decentralized rci sets. You can change the order_max and try again.")
-    return None,None
-
-
 def decentralized_rci_centralized_synthesis(list_system,size='min',order_max=30):
+    """
+    This function return a set of decentralized rci sets and their action sets. It computes everything in a centralized fashion using AGC
+    Inputs:
+        list_system; list of subsystems
+        size; size of the viable sets
+            min -> minimizing the rci sets by minimizng sum of the parameters on state space alpha_x
+            max -> maximizing the rci sets by maximizing sum of the parameters on state space alpha_x
+            nothing -> there will be no objective function
+            numpy.array vector -> it is used to find the maximum/minimume paramters at certain directions. useful for drawing the correct set of parameters set only
+        order_max; maximum allowed order for the zonotopic rci set
+    Outputs:
+        omega; the list of rci sets
+        theta; the list of action sets
+        alfa_x; the list of parameters on the state space
+        alfa_u; the list of parameters on the control space
+    It it could not find any solution it returns None for all outputs
+    """
 
     number_of_subsys=len(list_system)
     n=[len(list_system[i].A) for i in range(number_of_subsys)]
@@ -314,13 +235,14 @@ def decentralized_rci_centralized_synthesis(list_system,size='min',order_max=30)
 
         # Objective function
         if size == 'min' or size == 'max':
+
             obj = sum( [sum(var[sys]['alpha_x']) for sys in range(number_of_subsys)] )
-            
+            # NOTE: not sure if it works
             if size == 'max':
                 obj = -1 * obj 
 
+        # This will find the maximum alpha (it is for drawing)
         elif type(size) == np.ndarray:
-            # This will find the maximum alpha (it is for drawing)
             obj = np.dot( size , np.array(var[0]['alpha_x'][0: len(size)]) )
 
         else:
@@ -371,7 +293,6 @@ def mpc(system,horizon=1,x_desired='origin'):
         x_desired; is the desired state
     Output:
         u
-
     """
     
     terminal_cost = 2
@@ -408,87 +329,76 @@ def mpc(system,horizon=1,x_desired='origin'):
     return implementable_u , x_mpc , u_mpc
 
 
-def compositional_decentralized_rci(list_system,initial_guess='nominal',initial_order=2,step_size=0.1,alpha_0='random',order_max=100 , iteration_max=1000):
+def decentralized_rci_compositional_synthesis(list_system,initial_order=2,step_size=0.1,alpha_0='random',order_max=100 , iteration_max=1000):
     """
-    This function is for compositional computation of decentralized rci sets.
-    Input:  list of LTI systems
-            initial_guess for paramterized sets
-            size= minimal approximation
-            maximum order to try to find the T and M
-    Output: Omega and Theta
+    This function computes a set of decentralized rci sets in a compisinal fashion.
+    NOTE: 
+        * the order is the same for all subsystems
+        * validity is included in the potential function
+        *
+    Input:
+        list_system; list of LTI systems
+        initial_order; order of the rci sets. it starts from initial_order and increases the order until potential funciton reaches zero for all subsystems
+        step_size; step size for gradient descent
+        alpha_0;
+        order_max; maximum allowable order for the zonotopic rci set. NOTE that the order is the same for all subsystems
+        iteration_max; maximum number of iterations for the same order. If potential fucntion does not reach zero, we will increase the order by one unit for all subsystems
+    Output: 
+        omega and Theta
     """
+    VALUE_ZERO = 10**(-6)
     order=initial_order
+    num_sys = len(list_system)
 
-    for i in list_system:
-        i.parameterized_set_initialization()
-        i.set_alpha_max({'x': i.param_set_X, 'u':i.param_set_U})
+    # Initilization of the parametric sets : list_system[sys].param_set_X , list_system[sys].param_set_U, list_system[sys].alpha_x , list_system[sys].alpha_u
+    for sys in list_system:
+        sys.parameterized_set_initialization()
 
-    parsi.Monitor['time_compositional'] = [ [] for i in range( len(list_system) ) ] 
-    
-    ######################################################################################################################
-    # import matplotlib.pyplot as plt
-    # from math import ceil
-    # number_of_subsystems=len(list_system)
-    # cols=5
-    # fig, axs = plt.subplots(int(ceil(number_of_subsystems / cols)),cols)
-    # for i in range(number_of_subsystems):
-    #     list_system[i].X.color='red'
-    #     r=i//cols
-    #     c=i%cols
-    #     pp.visualize([list_system[i].X,list_system[i].omega], ax = axs[r,c],fig=fig, title='',equal_axis=True)
-    # plt.show()
-    ######################################################################################################################
-
-
-
-    if alpha_0=='random':
-        for i in list_system:
-            i.alpha_x=np.dot( np.random.rand(len(i.alpha_x_max)) , np.diag(i.alpha_x_max) )
-            i.alpha_u=np.dot(np.random.rand(len(i.alpha_u_max)) , np.diag(i.alpha_u_max) )
-            i.mapping_alpha_to_feasible_set()
+    # assigning paramters
+    # all ones
+    if alpha_0=='ones':
+        for sys in list_system:
+            sys.alpha_x= np.ones(sys.param_set_X.G.shape[1])
+            sys.alpha_u= np.ones(sys.param_set_U.G.shape[1])
+    # random
+    elif alpha_0=='random':
+        for sys in list_system:
+            sys.alpha_x= np.random.rand(sys.param_set_X.G.shape[1])
+            sys.alpha_u= np.random.rand(sys.param_set_U.G.shape[1])
+    # all zeros
     elif alpha_0=='zero':
-        for i in list_system:
-            i.alpha_x=np.zeros(len(i.alpha_x_max))
-            i.alpha_u=np.zeros(len(i.alpha_u_max))
+        for sys in list_system:
+            sys.alpha_x= np.zeros(sys.param_set_X.G.shape[1])
+            sys.alpha_u= np.zeros(sys.param_set_U.G.shape[1])
            
-    
-    # for monitoring the potential function and alphas (drawing them)
-    parsi.Monitor['alpha_x'] = [ [list_system[i].alpha_x] for i in range(len(list_system)) ]
-    parsi.Monitor['potential'] = []
-    parsi.Monitor['num_iterations'] = 0
-
-
-    # alpha_x= np.array([i.alpha_x for i in list_system]).reshape(-1)
-    # alpha_u= np.array([i.alpha_u for i in list_system]).reshape(-1)
-
     objective_function=1
     objective_function_previous=2
     iteration=0
+
     while objective_function>0 or order==order_max:
-        
-        subsystems_output = [ parsi.potential_function(list_system, system_index, T_order=order, reduced_order=1) for system_index in range(len(list_system)) ]
+
+        # finding all componenets of the potential function
+        subsystems_output = [ parsi.potential_function_rci(list_system, system_index, order, reduced_order=1, include_validity=True) for system_index in range(num_sys) ]
+     
         objective_function_previous=objective_function
-        objective_function=sum([subsystems_output[i]['obj'] for i in range(len(list_system)) ])
 
-        parsi.Monitor['potential'] .append(objective_function)
-        parsi.Monitor['num_iterations'] = parsi.Monitor['num_iterations']+1
+        # computing the potential function
+        objective_function = sum([subsystems_output[i]['obj'] for i in range(num_sys) ])
 
-        if objective_function==0:
-            for i in range(len(list_system)):
-                list_system[i].omega=pp.zonotope(G=subsystems_output[i]['T'],x=subsystems_output[i]['xbar'])
-                list_system[i].theta=pp.zonotope(G=subsystems_output[i]['M'],x=subsystems_output[i]['ubar'])
+        # if the potential funciton is smaller than VALUE_ZERO, the solution is found
+        if objective_function <= VALUE_ZERO:
+            for sys in range(len(list_system)):
+                list_system[sys].omega=pp.zonotope(G=subsystems_output[sys]['T'],x=subsystems_output[sys]['x_bar'])
+                list_system[sys].theta=pp.zonotope(G=subsystems_output[sys]['M'],x=subsystems_output[sys]['u_bar'])
 
-            parsi.Monitor['order'] = order
-
-            return [i.omega for i in list_system],[i.theta for i in list_system]
+            return [sys.omega for sys in list_system],[sys.theta for sys in list_system]
 
         else:
-            for i in range(len(list_system)):
+            for i in range(num_sys):
 
-
-                # finding gradients
-                grad_x= np.array(sum([subsystems_output[j]['alpha_x_grad'][i] for j in range(len(list_system))]))
-                grad_u= np.array(sum([subsystems_output[j]['alpha_u_grad'][i] for j in range(len(list_system))]))
+                # finding gradients and adding all the gradient for find the best direction
+                grad_x= np.array(sum([subsystems_output[j]['alpha_x_grad'][i] for j in range(num_sys)]))
+                grad_u= np.array(sum([subsystems_output[j]['alpha_u_grad'][i] for j in range(num_sys)]))
 
 
                 # gradient descent
@@ -505,24 +415,6 @@ def compositional_decentralized_rci(list_system,initial_guess='nominal',initial_
                 list_system[i].alpha_x = list_system[i].alpha_x - step_size * grad_x 
                 list_system[i].alpha_u = list_system[i].alpha_u - step_size * grad_u 
 
-
-
-                # Projection to the valid set of aplha
-
-                # projecting to the maximum allowed amount paramter-wise (conservative)
-                # list_system[i].mapping_alpha_to_feasible_set()
-
-
-                # projecting to the set of valid parameters
-                list_system[i].alpha_u =  parsi.parameter_projection( list_system[i].U , list_system[i].theta , list_system[i].alpha_u )
-                list_system[i].alpha_x =  parsi.parameter_projection( list_system[i].X , list_system[i].omega , list_system[i].alpha_x )
-                
-
-                # this is for tracking alpha and its gradient (for drawing it)    
-                parsi.Monitor['alpha_x'][i].append(list_system[i].alpha_x)  
-                if iteration == 0 and i == 0:
-                    parsi.Monitor['gradient'] = [ subsystems_output[j]['alpha_x_grad'][i] for j in range(len(list_system)) ]
-
         if abs(objective_function - objective_function_previous)< 10**(-4):
 
             step_size=step_size+0.1
@@ -538,7 +430,7 @@ def compositional_decentralized_rci(list_system,initial_guess='nominal',initial_
 
 def shrinking_rci(list_system,reduced_order=2,order_reduction_method='pca'):
     """
-    The goal is shrinking the rci sets. It 
+    The goal is shrinking the rci sets.
     """
     sys_number=len(list_system)
 

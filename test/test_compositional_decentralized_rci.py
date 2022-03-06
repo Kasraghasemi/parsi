@@ -19,68 +19,65 @@ number_of_subsystems= 10
 n=2*number_of_subsystems
 m=1*number_of_subsystems
 
-np.random.seed(seed=2)
-A=np.random.rand(n,n)* landa
-B=np.random.rand(n,m)* landa
-#A=np.zeros((n,n))
-B=np.zeros((n,m))
+A=np.ones((n,n))* landa
+B=np.ones((n,m))* landa
 
 for i in range(number_of_subsystems): 
     A[2*i:2*(i+1),2*i:2*(i+1)]= np.array([[1,1],[0,1]]) * delta
     B[2*i:2*(i+1),i]= np.array([0,1]) * delta
 
-w_i=pp.zonotope(G=np.array([[0.1,0],[0,0.1]]) , x=np.array([0,0]))
-W=w_i
-for i in range(number_of_subsystems-1):
-    W=W**w_i
-# W=pp.zonotope(G=np.eye(n)*0.3,x=np.zeros(n))
+X_i=pp.zonotope(G=np.eye(2),x=np.zeros(2),color='red')
+U_i=pp.zonotope(G=np.eye(1),x=np.zeros(1))
+W_i=pp.zonotope(G=np.eye(2)*0.1,x=np.zeros(2))
+
+W=W_i
+for _ in range(number_of_subsystems-1):
+    W=W**W_i
 X=pp.zonotope(G=np.eye(n),x=np.zeros(n),color='red')
 U=pp.zonotope(G=np.eye(m),x=np.zeros(m))
 
 system=parsi.Linear_system(A,B,W=W,X=X,U=U)
-sub_sys=parsi.sub_systems(system,partition_A=[2]*number_of_subsystems,partition_B=[1]*number_of_subsystems,disturbance=[w_i for j in range(number_of_subsystems)])
+sub_sys=parsi.sub_systems(
+    system,partition_A=[2]*number_of_subsystems,
+    partition_B=[1]*number_of_subsystems,
+    disturbance=[W_i for j in range(number_of_subsystems)], 
+    admissible_x=[X_i for j in range(number_of_subsystems)] , 
+    admissible_u=[U_i for j in range(number_of_subsystems)]
+)
 
-for i in range(number_of_subsystems):
-    sub_sys[i].U.G=np.array([sub_sys[i].U.G])
+omega,theta=parsi.decentralized_rci_compositional_synthesis(sub_sys,initial_order=4,step_size=0.1,alpha_0='ones',order_max=100)
 
 
-omega,theta=parsi.compositional_decentralized_rci(sub_sys,initial_guess='nominal',initial_order=4,step_size=0.1,alpha_0='random',order_max=100)
+# Plotting
 
-for i in range(number_of_subsystems):
-    sub_sys[i].state=parsi.sample(sub_sys[i].omega)
+# path= np.array( [sub_sys[i].state for i in range(number_of_subsystems)] ).reshape(-1,1)
 
-system.state= np.array( [sub_sys[i].state for i in range(number_of_subsystems)] ).flatten()
-path=system.state.reshape(-1,1)
-
-cols=5
-fig, axs = plt.subplots(int(ceil(number_of_subsystems / cols)),cols)
-for i in range(number_of_subsystems):
-    sub_sys[i].X.color='red'
-    r=i//cols
-    c=i%cols
-    pp.visualize([sub_sys[i].X,omega[i]], ax = axs[r,c],fig=fig, title='',equal_axis=True)
-    # print('omega',sub_sys[i].omega.G)
-
-for step in range(50):
-    #Finding the controller
-    u=np.array([parsi.mpc(sub_sys[i],horizon=1,x_desired='origin') for i in range(number_of_subsystems)]).flatten()
-    state= system.simulate(u)
-    path=np.concatenate((path,state.reshape(-1,1)) ,axis=1)
-    for i in range(number_of_subsystems):
-        sub_sys[i].state=system.state[2*i:2*(i+1)]
-        r=i//cols
-        c=i%cols
-        axs[r,c].plot(path[2*i,:],path[2*i+1,:],color='b')
-    plt.pause(0.02)
-
-# plt.show()  
-
-# omega = parsi.shrinking_rci(sub_sys,reduced_order=1,order_reduction_method='boxing')
-# fig2, axs2 = plt.subplots(int(ceil(number_of_subsystems / cols)),cols)
+# cols=5
+# fig, axs = plt.subplots(int(ceil(number_of_subsystems / cols)),cols)
 # for i in range(number_of_subsystems):
 #     sub_sys[i].X.color='red'
 #     r=i//cols
 #     c=i%cols
-#     pp.visualize([sub_sys[i].X,omega[i]], ax = axs2[r,c],fig=fig2, title='',equal_axis=True)
+#     pp.visualize([sub_sys[i].X,omega[i]], ax = axs[r,c],fig=fig, title='',equal_axis=True)
 
-plt.show()
+for step in range(100):
+
+    #Finding the controller
+    zeta_optimal=[]
+    u = [parsi.find_controller( sub_sys[i].omega , sub_sys[i].theta , sub_sys[i].state) for i in range(number_of_subsystems) ]        
+    state= np.array([sub_sys[i].simulate(u[i]) for i in range(number_of_subsystems)])
+
+    for i in range(number_of_subsystems):
+        assert parsi.is_in_set( sub_sys[i].omega , state[i] ) == True
+
+# Plotting
+
+#     path=np.concatenate((path,state.reshape(-1,1)) ,axis=1)
+#     for i in range(number_of_subsystems):
+#         r=i//cols
+#         c=i%cols
+#         axs[r,c].plot(path[2*i,:],path[2*i+1,:],color='b')
+#     plt.pause(0.02)
+
+# plt.tight_layout()
+# plt.show()  

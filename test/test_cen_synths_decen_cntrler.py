@@ -19,7 +19,6 @@ number_of_subsystems= 10
 n=2*number_of_subsystems
 m=1*number_of_subsystems
 
-np.random.seed(seed=2)
 A=np.ones((n,n))* landa
 B=np.ones((n,m))* landa
 
