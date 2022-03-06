@@ -18,7 +18,7 @@ except:
     print('Error: parsi package is not installed correctly') 
 from copy import deepcopy
 
-def rci_constraints(model, system, T_order, general_version=True):
+def rci_constraints(model, system, T_order, general_version=True , include_hard_connstraints= True):
     """
     This function adds necessary constraints for RCI (robust control invariant) set for a LTI.
     Inputs: 
@@ -75,30 +75,31 @@ def rci_constraints(model, system, T_order, general_version=True):
     model.addConstrs( (left_side_rci_constraint[i,j]==right_side_rci_constraint[i,j] for i in range(n) for j in range(n+k)) )
     model.update()
 
-    #   Ax+Bu+d=x
+    # Ax+Bu+d=x
     model.addConstrs( ( (np.dot(system.A , x) + np.dot(system.B , u) + system.W.x)[i] ==x[i] for i in range(n) ) )
     model.update()
 
     # Adding the hard constraints over state and control inputs
-    if system.X is not None:
-        if general_version == True:
-            _ , _ , coeff_x = pp.zonotope_subset(model, pp.zonotope(G=T,x=x) , system.X ,alpha='scalar' ,solver='gurobi')
-            model.update()
-            model.addConstr( (1-beta) == coeff_x )
-        elif general_version == False:
-            pp.zonotope_subset(model, pp.zonotope(G=T,x=x) , system.X ,solver='gurobi')
-    model.update()
+    if include_hard_connstraints:
+        if system.X is not None:
+            if general_version == True:
+                _ , _ , coeff_x = pp.zonotope_subset(model, pp.zonotope(G=T,x=x) , system.X ,alpha='scalar' ,solver='gurobi')
+                model.update()
+                model.addConstr( (1-beta) == coeff_x )
+            elif general_version == False:
+                pp.zonotope_subset(model, pp.zonotope(G=T,x=x) , system.X ,solver='gurobi')
+        model.update()
 
-    if system.U is not None:
-        if general_version == True:
-            _ , _ , coeff_u = pp.zonotope_subset(model, pp.zonotope(G=M,x=u) , system.U ,alpha='scalar' ,solver='gurobi')
-            model.update()
-            model.addConstr( (1-beta) == coeff_u )
-            
-        elif general_version == False:
-            pp.zonotope_subset(model, pp.zonotope(G=M,x=u) , system.U ,solver='gurobi')
-    model.update()
-    
+        if system.U is not None:
+            if general_version == True:
+                _ , _ , coeff_u = pp.zonotope_subset(model, pp.zonotope(G=M,x=u) , system.U ,alpha='scalar' ,solver='gurobi')
+                model.update()
+                model.addConstr( (1-beta) == coeff_u )
+                
+            elif general_version == False:
+                pp.zonotope_subset(model, pp.zonotope(G=M,x=u) , system.U ,solver='gurobi')
+        model.update()
+        
     output={
         'T':T,
         'x_bar': x,
@@ -373,157 +374,149 @@ def hausdorff_distance_condition(model,zon1,zon2,alpha=None):
     return d,alpha_i_constraints
 
 
-# the potential function for just a single system
-def potential_function(list_system, system_index, T_order=3, reduced_order=1):
+def potential_function_rci(list_system, system_index, T_order, reduced_order=1, include_validity=True):
     """
+    Note: list_system[sys].param_set_X , list_system[sys].param_set_U, list_system[sys].alpha_x , list_system[sys].alpha_u MUST be already assigned before calling this function
+    This function computes the component of the potenitial function for only one given subsystem,
+    thus, for computing the potential fucniton you need to iterate it over subsystems and sum the outputs
     Inputs: 
-            (1)the list of coupled linear systems: Note that alpha_x,alpha_u must have a value
-            (2)the index of the system which you want to compute
-            (3)the order of the candidate rci set
-            (4)the order of the reduced disturbance set
+        list_system; the list of coupled linear systems: Note that alpha_x,alpha_u must have a value
+        system_index; the index of the system which you want to compute
+        T_order; the order of the candidate rci set
+        reduced_order; the order of the reduced disturbance set
     Outputs:
             (1)the directed hausdorf distance between rci set and the admissible state space 
             (2)the directed hausdorf distance between action set and the admissible control input
             (3)the gradients of (1) with respect to alpha_x
             (4)the gradients of (2) with respect to alpha_u
     """
-    from copy import copy,deepcopy
-    from itertools import accumulate
+
     sys_number = len(list_system)
-    n=[list_system[i].A.shape[0] for i in range(sys_number)]
-    m=[list_system[i].B.shape[1] for i in range(sys_number)]
-    k = round(n[system_index]*T_order) 
+    n = list_system[system_index].A.shape[1]
+    m = list_system[system_index].B.shape[1]
 
-    # Initilizing the paramterize set
-    if any([sys.omega==None for sys in list_system]) or any([sys.theta==None for sys in list_system]) :
-        X_i,U_i = parsi.rci_decentralized_initialization(list_system,initial_guess='nominal',order_max=30,size='min',obj='include_center')
-    else:
-        X_i=[sys.omega for sys in list_system]
-        U_i=[sys.theta for sys in list_system]
-
-    # Computing the disturbance set
-    disturb = deepcopy( list_system[system_index].W )
-    for j in range(sys_number):
-        if j in list_system[system_index].A_ij:
-            w=pp.zonotope(G= np.dot(np.dot( list_system[system_index].A_ij[j], X_i[j].G), np.diag( list_system[j].alpha_x) ) , x= np.dot( list_system[system_index].A_ij[j], X_i[j].x))
-            disturb = disturb+w
-        if j in list_system[system_index].B_ij:
-            w=pp.zonotope(G= np.dot(np.dot( list_system[system_index].B_ij[j], U_i[j].G), np.diag(list_system[j].alpha_u) ) , x= np.dot( list_system[system_index].B_ij[j], U_i[j].x))
-            disturb= disturb+w
-
+    # breaking the coupling among subsystems
+    # list_system[sys].param_set_X , list_system[sys].param_set_U, list_system[sys].alpha_x , list_system[sys].alpha_u 
+    # MUST be already assigned before calling this function parsi.break_subsystems()
+    disturb = parsi.break_subsystems(list_system , subsystem_index=system_index)
+    
     # Using Zonotope order reduction
     disturb= pp.boxing_order_reduction(disturb,desired_order=reduced_order)      # For now it just covers reduced_order equal to 1
-
+    real_disturbance_sets = deepcopy(list_system[system_index].W)
+    
     # Creating the model
     model = Model()
 
+    ########################################################################################################################
+    # NOTE: to make finding the gradient w.r.t alpha_j easy, a new set of variables is created fpr disturbance. 
+    # This trick also forces us to set general_version to False, otherwise the problem becomes non-convex.
+    # TODO: modify here later
+
     # Definging the new disturbance as a variable
-    W_x = np.array([ model.addVar(lb = -GRB.INFINITY) for i in range(n[system_index]) ])
-    W_G = np.array([[model.addVar(lb = -GRB.INFINITY) for i in range( disturb.G.shape[1] )] for j in range(n[system_index])])
+    W_G = np.array([[model.addVar(lb = -GRB.INFINITY , ub = GRB.INFINITY) for _ in range( disturb.G.shape[1] )] for _ in range( disturb.G.shape[0] )])
     model.update()
     
-    # Adding the constraint for disturbance: W_aug == disturb               ###################################################################################
-    [ model.addConstr(W_x[i] == disturb.x[i]) for i in range(n[system_index]) ]
-    for i in range(n[system_index]):
+    # Adding the constraint for disturbance: W_aug == disturb 
+    for i in range( disturb.G.shape[0] ):
         for j in range(disturb.G.shape[1]):
             if i!=j:
                 model.addConstr(W_G[i][j] == disturb.G[i][j])
-    alpha_j_constraints=[model.addConstr(W_G[i][i] == disturb.G[i][i]) for i in range(n[system_index]) ]                # JUST FOR reduced_order=1
-    #[model.addConstr(W_G[i][j] == disturb.G[i][j] ) for i in range(n[system_index]) for j in range(disturb.G.shape[1]) ]
-    model.update()
-    
-    # Defining the rci set (zonotope(x=xbar,G=T)) and action set (zonotope(x=ubar,G=M))
-    T = [ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k)] for j in range(n[system_index])] 
-    M = [ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k)] for j in range(m[system_index])]
-    xbar = [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(n[system_index])]
-    ubar = [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(m[system_index])]
-    model.update()
-    
-    # Constraint [AT+BM,W]=[0,T]
-    left_side = np.concatenate (( np.dot(list_system[system_index].A,T) + np.dot(list_system[system_index].B,M)  , W_G) ,axis=1)
-    right_side = np.concatenate(   ( np.zeros(W_G.shape) , T)  , axis=1)
+    # NOTE: only for reduced_order=1, I am separating those constraints that contain alpha_j
+    alpha_j_constraints=[model.addConstr(W_G[i][i] == disturb.G[i][i]) for i in range(n) ]
 
-    model.addConstrs(   ( left_side[i,j] == right_side[i,j]  for i in range(n[system_index]) for j in range(W_G.shape[1]+k))     )                
-    
-    # Conditions for center: A* x_bar + B* u_bar + d_bar = x_bar 
-    center = np.dot(list_system[system_index].A ,np.array(xbar) ) + np.dot(list_system[system_index].B ,np.array(ubar) ) + W_x
-    model.addConstrs( (center[i] == xbar[i] for i in range(n[system_index])))
-    
     model.update()
 
-    # Setting 
-    d_x,alpha_i_x_constraints=parsi.hausdorff_distance_condition(model, pp.zonotope(x=xbar,G=T) , X_i[system_index] ,list_system[system_index].alpha_x)
-    d_u,alpha_i_u_constraints=parsi.hausdorff_distance_condition(model, pp.zonotope(x=ubar,G=M) , U_i[system_index] ,list_system[system_index].alpha_u)
+    # NOTE: should return to its original value at the end
+    list_system[system_index].W = pp.zonotope(x = disturb.x , G = W_G) 
+    ########################################################################################################################
 
-    model.setObjective( d_x+d_u , GRB.MINIMIZE )
+    # adding rci sonstraints; Satisfiability and Validity
+    # NOTE: general_version=False , because for now I wanted to make it easy to find the gradients of alpha_j
+    var = rci_constraints(model, list_system[system_index], T_order, general_version=False , include_hard_connstraints=False)
+    
+    # Adding hausdorff distance terms for Correctness constraints
+    d_x_correctness , alpha_i_x_constraints = parsi.hausdorff_distance_condition(model, pp.zonotope(x=var['x_bar'],G=var['T']) , list_system[system_index].param_set_X ,list_system[system_index].alpha_x)
+    d_u_correctness , alpha_i_u_constraints = parsi.hausdorff_distance_condition(model, pp.zonotope(x=var['u_bar'],G=var['M']) , list_system[system_index].param_set_U ,list_system[system_index].alpha_u)
+
+    # Adding hausdorff distance terms for Validity constraints
+    if include_validity:
+        d_x_valid , _ =parsi.hausdorff_distance_condition(model, pp.zonotope(x=var['x_bar'],G=var['T']) , list_system[system_index].X )
+        d_u_valid , _ =parsi.hausdorff_distance_condition(model, pp.zonotope(x=var['u_bar'],G=var['M']) , list_system[system_index].U )
+        model.setObjective( d_x_correctness + d_u_correctness + d_x_valid + d_u_valid, GRB.MINIMIZE )
+    else:
+        model.setObjective( d_x_correctness + d_u_correctness, GRB.MINIMIZE )
     model.update()
 
     model.setParam("OutputFlag",False)
     model.optimize()
 
-    parsi.Monitor['time_compositional'][system_index].append( model.Runtime )
 
-    #print('MODEL',model.IsMIP)
-    # print('MODEL STATUS',model.Status)
-    #print('OBJECTIVE FUNCTION',model.objVal)
+    # Computing the gradient of this particular term of the potential function w.r.t alpha_i and alpha_j 
+    grad_alpha_x=[]
+    grad_alpha_u=[]
 
-
-    #length_x_alpha=[i.alpha_x.shape[0] for i in list_system]
-    #length_x_alpha.insert(0,0)
-    #accum_length_x_alpha=list(accumulate(length_x_alpha))
-    #grad_x=np.zeros(accum_length_x_alpha[-1])             # you need to intialize alpha for all sub-systems before running this code!
-    grad_x_i=[]
-
-    #length_u_alpha=[i.alpha_u.shape[0] for i in list_system]
-    #length_u_alpha.insert(0,0)
-    #accum_length_u_alpha=list(accumulate(length_u_alpha))
-    #grad_u=np.zeros(accum_length_u_alpha[-1])             # you need to intialize alpha for all sub-systems before running this code!
-    grad_u_i=[]
-
+    # alpha_x
     for j in range(sys_number):
+        
+        # alpha_i_x
         if j==system_index:
-            grad_x_i.append( np.array([alpha_i_x_constraints[i].pi for i in range(len(alpha_i_x_constraints))] ))
-            #grad_x[accum_length_x_alpha[j]:accum_length_x_alpha[j+1]]=np.array(grad_x_i[-1])
+            grad_alpha_x.append( np.array([alpha_i_x_constraints[i].pi for i in range(len(alpha_i_x_constraints))] ))
+        
+        # alpha_j_x does not affect A_ij
         elif not j in list_system[system_index].A_ij:
-            grad_x_i.append( np.zeros(list_system[j].alpha_x.shape[0]))
+            grad_alpha_x.append( np.zeros(list_system[j].alpha_x.shape[0]))
+        
+        # alpha_j_x
         else:
-            grad_x_i.append( np.array( [sum([alpha_j_constraints[row].pi * (abs(np.dot( list_system[system_index].A_ij[j][row,:], X_i[j].G[:,i]))) \
+            grad_alpha_x.append( np.array( [sum([alpha_j_constraints[row].pi * (abs(np.dot( list_system[system_index].A_ij[j][row,:], list_system[j].param_set_X.G[:,i]))) \
                             for row in range(disturb.G.shape[0])]) \
-                            for i in range(X_i[j].G.shape[1])] ))
-            #grad_x[accum_length_x_alpha[j]:accum_length_x_alpha[j+1]]= np.array(grad_x_i[-1])
+                            for i in range(list_system[j].param_set_X.G.shape[1])] ))
 
+    # alpha_u
     for j in range(sys_number):
-        if j==system_index:
-            grad_u_i.append( np.array( [alpha_i_u_constraints[i].pi for i in range(len(alpha_i_u_constraints))] ))
-            #grad_u[accum_length_u_alpha[j]:accum_length_u_alpha[j+1]]=np.array(grad_u_i[-1])
-        elif not j in list_system[system_index].B_ij:
-            grad_u_i.append( np.zeros(list_system[j].alpha_u.shape[0]))
-        else:
-            grad_u_i.append( np.array( [sum([alpha_j_constraints[row].pi * (abs(np.dot( list_system[system_index].B_ij[j][row,:], U_i[j].G[:,i]))) \
-                            for row in range(disturb.G.shape[0])]) \
-                            for i in range(U_i[j].G.shape[1])]) )
-            #grad_u[accum_length_u_alpha[j]:accum_length_u_alpha[j+1]]= np.array(grad_u_i[-1])
-    
-    T_result= np.array([ [ T[i][j].X for j in range(k) ] for i in range(n[system_index]) ] )
-    T_x_result = np.array( [ xbar[i].X for i in range(n[system_index]) ] ) 
 
-    M_result= np.array([ [ M[i][j].X for j in range(k) ] for i in range(m[system_index]) ] )
-    M_x_result = np.array( [ ubar[i].X for i in range(m[system_index]) ] ) 
+        # alpha_i_u
+        if j==system_index:
+            grad_alpha_u.append( np.array( [alpha_i_u_constraints[i].pi for i in range(len(alpha_i_u_constraints))] ))
+
+        # alpha_j_u does not affect B_ij
+        elif not j in list_system[system_index].B_ij:
+            grad_alpha_u.append( np.zeros(list_system[j].alpha_u.shape[0]))
+        
+        # alpha_j_u
+        else:
+            grad_alpha_u.append( np.array( [sum([alpha_j_constraints[row].pi * (abs(np.dot( list_system[system_index].B_ij[j][row,:], list_system[j].param_set_U.G[:,i]))) \
+                            for row in range(disturb.G.shape[0])]) \
+                            for i in range(list_system[j].param_set_U.G.shape[1])]) )
+    
+    # Results
+    k = var['T'].shape[1]
+    T_result= np.array([ [ var['T'][i][j].X for j in range(k) ] for i in range(n) ] )
+    x_bar_result = np.array( [ var['x_bar'][i].X for i in range(n) ] ) 
+
+    M_result= np.array([ [ var['M'][i][j].X for j in range(k) ] for i in range(m) ] )
+    u_bar_result = np.array( [ var['u_bar'][i].X for i in range(m) ] ) 
 
     potential_output={
         'obj': model.objVal ,
-        'obj_x': d_x.X,
-        'obj_u':d_u.X,
-        'alpha_x_grad':grad_x_i,
-        'alpha_u_grad':grad_u_i,
-        'xbar':T_x_result,
+        'd_x_correctness': d_x_correctness.X,
+        'd_u_correctness':d_u_correctness.X,
+        'alpha_x_grad':grad_alpha_x,
+        'alpha_u_grad':grad_alpha_u,
+        'xbar':x_bar_result,
         'T':T_result,
-        'ubar':M_x_result,
+        'ubar':u_bar_result,
         'M':M_result
     }
+    if include_validity:
+        var['d_x_valid'] = d_x_valid.X
+        var['d_u_valid'] = d_u_valid.X
     
     del model
     
+    # return the disturbance set to its original set
+    list_system[system_index].W = real_disturbance_sets
+
     return potential_output
 
 

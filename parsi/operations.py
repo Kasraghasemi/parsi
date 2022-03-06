@@ -142,7 +142,7 @@ def viable_limited_time(system,horizon = None ,order_max=10,obj=True,algorithm='
     return None , None
 
 
-def sub_systems(system,partition_A,partition_B,disturbance=True , admissible_x=True , admissible_u=True ):
+def sub_systems(system, partition_A, partition_B, disturbance=True, admissible_x=True, admissible_u=True ):
     """
     The input is a large system and partition over system.A 
     example: [2,3,1] creates A_{11}=2*2, A_{22}=3*3, and A_{33}=1*1
