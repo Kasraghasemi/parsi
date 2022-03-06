@@ -20,10 +20,8 @@ n=2*number_of_subsystems
 m=1*number_of_subsystems
 
 np.random.seed(seed=2)
-A=np.random.rand(n,n)* landa
-B=np.random.rand(n,m)* landa
-#A=np.zeros((n,n))
-B=np.zeros((n,m))
+A=np.ones((n,n))* landa
+B=np.ones((n,m))* landa
 
 for i in range(number_of_subsystems): 
     A[2*i:2*(i+1),2*i:2*(i+1)]= np.array([[1,1],[0,1]]) * delta
