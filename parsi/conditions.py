@@ -385,10 +385,21 @@ def potential_function_rci(list_system, system_index, T_order, reduced_order=1, 
         T_order; the order of the candidate rci set
         reduced_order; the order of the reduced disturbance set
     Outputs:
-            (1)the directed hausdorf distance between rci set and the admissible state space 
-            (2)the directed hausdorf distance between action set and the admissible control input
-            (3)the gradients of (1) with respect to alpha_x
-            (4)the gradients of (2) with respect to alpha_u
+        potential_output; it is a dictionary containing the following keys:
+            obj: which is the value for the potential function
+            d_x_correctness: the directed hausdorf distance between rci set and the parameterized set on state space
+            d_u_correctness: the directed hausdorf distance between action set and the parameterized set on control space
+            alpha_x_grad: the gradients of the potential function with respect to alpha_x
+            alpha_u_grad: the gradients of the potential function with respect to alpha_u
+            x_bar: the center of the rci set
+            T: the generator for the rci set
+            u_bar: the center of the action set
+            M: the generator for the action set
+            d_x_valid: if the include_validity is True, it will be among the keys and 
+                    shows the directed hausdorf distance between rci set and the admissible state set
+            d_u_valid: if the include_validity is True, it will be among the keys and 
+                    shows the directed hausdorf distance between action set and the admissible control set
+            NOTE: the output rci and action sets are not necessary true. It is, only if the potential function is zero for all subsystems.
     """
 
     sys_number = len(list_system)
@@ -503,9 +514,9 @@ def potential_function_rci(list_system, system_index, T_order, reduced_order=1, 
         'd_u_correctness':d_u_correctness.X,
         'alpha_x_grad':grad_alpha_x,
         'alpha_u_grad':grad_alpha_u,
-        'xbar':x_bar_result,
+        'x_bar':x_bar_result,
         'T':T_result,
-        'ubar':u_bar_result,
+        'u_bar':u_bar_result,
         'M':M_result
     }
     if include_validity:
