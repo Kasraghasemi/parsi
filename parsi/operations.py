@@ -329,24 +329,27 @@ def mpc(system,horizon=1,x_desired='origin'):
     return implementable_u , x_mpc , u_mpc
 
 
-def decentralized_rci_compositional_synthesis(list_system,initial_order=2,step_size=0.1,alpha_0='random',order_max=100 , iteration_max=1000):
+def decentralized_rci_compositional_synthesis(list_system,initial_order=2,step_size=0.1,alpha_0='ones',order_max=100 , iteration_max=100 , VALUE_ZERO=10**(-6)):
     """
     This function computes a set of decentralized rci sets in a compisinal fashion.
     NOTE: 
         * the order is the same for all subsystems
         * validity is included in the potential function
-        *
     Input:
         list_system; list of LTI systems
         initial_order; order of the rci sets. it starts from initial_order and increases the order until potential funciton reaches zero for all subsystems
         step_size; step size for gradient descent
-        alpha_0;
-        order_max; maximum allowable order for the zonotopic rci set. NOTE that the order is the same for all subsystems
+        alpha_0; initialization of parameters
+            -> ones: all are set to zero (recommended)
+            -> random: random values between [0,1)
+        order_max; maximum allowable order for the zonotopic rci set
         iteration_max; maximum number of iterations for the same order. If potential fucntion does not reach zero, we will increase the order by one unit for all subsystems
     Output: 
-        omega and Theta
+        Omega; list of decentralized rci sets
+        Theta; list of decentralized action sets
+    if it fails to find a solution, it return the final potential function that it could get to.
     """
-    VALUE_ZERO = 10**(-6)
+   
     order=initial_order
     num_sys = len(list_system)
 
@@ -365,11 +368,6 @@ def decentralized_rci_compositional_synthesis(list_system,initial_order=2,step_s
         for sys in list_system:
             sys.alpha_x= np.random.rand(sys.param_set_X.G.shape[1])
             sys.alpha_u= np.random.rand(sys.param_set_U.G.shape[1])
-    # all zeros
-    elif alpha_0=='zero':
-        for sys in list_system:
-            sys.alpha_x= np.zeros(sys.param_set_X.G.shape[1])
-            sys.alpha_u= np.zeros(sys.param_set_U.G.shape[1])
            
     objective_function=1
     objective_function_previous=2
@@ -384,6 +382,8 @@ def decentralized_rci_compositional_synthesis(list_system,initial_order=2,step_s
 
         # computing the potential function
         objective_function = sum([subsystems_output[i]['obj'] for i in range(num_sys) ])
+
+        print('potential function : ',objective_function)
 
         # if the potential funciton is smaller than VALUE_ZERO, the solution is found
         if objective_function <= VALUE_ZERO:
@@ -403,6 +403,8 @@ def decentralized_rci_compositional_synthesis(list_system,initial_order=2,step_s
 
                 # gradient descent
 
+                # I am not normalizing the gradients because it prevent convergence when some of the parameters are assigned to zero after they go below zero
+                
                 # normalized gradient descent 
                 # grad_norm_x = np.linalg.norm( grad_x ,ord=2)
                 # grad_norm_x = 1 if grad_norm_x == 0 else grad_norm_x
@@ -415,7 +417,29 @@ def decentralized_rci_compositional_synthesis(list_system,initial_order=2,step_s
                 list_system[i].alpha_x = list_system[i].alpha_x - step_size * grad_x 
                 list_system[i].alpha_u = list_system[i].alpha_u - step_size * grad_u 
 
-        if abs(objective_function - objective_function_previous)< 10**(-4):
+
+                # gradient descent may cause the parameters to go below zero, which must not happen because the parameters have zero as their lower bound
+                # so those elements that go below zero after updating are replaced with zero
+
+                list_system[i].alpha_x[ list_system[i].alpha_x < 0 ] = 0
+                list_system[i].alpha_u[ list_system[i].alpha_u < 0 ] = 0
+
+                # for jj in range(len(list_system[i].alpha_x)):
+                #     print('YYYYYYYYYYYYYYYYYYYYYYYY')
+                #     if list_system[i].alpha_x[jj] < 0:
+                #         list_system[i].alpha_x[jj]=0
+                # for jj in range(len(list_system[i].alpha_u)):
+                #     print('XXXXXXXXXXXXXXXXXXXXXXXX')
+                #     if list_system[i].alpha_u[jj] < 0:
+                #         list_system[i].alpha_u[jj]=0
+
+
+        # if the potential funciton is increased compared to its previous value more than a threshold, it can be because the order of the sets is small
+        if objective_function > ((objective_function_previous) + 10**(-2)):
+            order = order + 1
+
+        # if the potential funciton is not changing that mucg, it can because of a small step size
+        elif abs(objective_function - objective_function_previous)< 10**(-3):
 
             step_size=step_size+0.1
             
@@ -424,7 +448,7 @@ def decentralized_rci_compositional_synthesis(list_system,initial_order=2,step_s
                 iteration = 0
 
         iteration += 1
-        print('objective_function',objective_function)
+
     return objective_function
 
 
@@ -435,7 +459,7 @@ def shrinking_rci(list_system,reduced_order=2,order_reduction_method='pca'):
     sys_number=len(list_system)
 
     while any([i.X!=i.omega for i in list_system]):
-        print('OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO')
+        
         # Computing the disturbance set
         disturb=[]
         for i in range(sys_number):
