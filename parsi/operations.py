@@ -138,17 +138,17 @@ def viable_limited_time(system,horizon = None ,order_max=10,obj=True,algorithm='
         else:
             del model
 
-    print('Not able to find a feasible solution for the RCI set. You can try again by increasing the order_max')
+    print('Not able to find a feasible solution for the viable set. You can try again by increasing the order_max')
     return None , None
 
 
 def sub_systems(system, partition_A, partition_B, disturbance=True, admissible_x=True, admissible_u=True ):
     """
-    This function gets a single linear system and returns a network of connected linear systems
+    This function gets a single LTI system and returns a network of connected LTI systems
     Inputs:
         system; a LTI system
-        partition_A; partition over aggregated A matrix, for example: [2,3,1] creates A_{11}=2*2, A_{22}=3*3, and A_{33}=1*1
-        partition_B; partition over aggregated B matrix
+        partition_A; a list, partition over aggregated A matrix, for example: [2,3,1] creates A_{11}=2*2, A_{22}=3*3, and A_{33}=1*1
+        partition_B; a list, partition over aggregated B matrix
         disturbance; 
             -> True: it over approximates the set and uses decomposition to decompose by subsystems. NOTE that it need Drake.
             -> list of zonotopic sets in order of subsystems
@@ -202,6 +202,72 @@ def sub_systems(system, partition_A, partition_B, disturbance=True, admissible_x
     return sys
 
 
+def sub_systems_LTV(system, partition_A, partition_B, disturbance=True, admissible_x=True, admissible_u=True):
+    """
+    This function gets a single LTV system and returns a network of connected LTV systems.
+    Inputs:
+        system; a LTV system
+        partition_A; a list, partition over aggregated A matrix, for example: [2,3,1] creates A_{11}=2*2, A_{22}=3*3, and A_{33}=1*1
+        partition_B; a list partition over aggregated B matrix
+        disturbance; 
+            -> True: it over approximates the set and uses decomposition to decompose by subsystems. NOTE that it need Drake.
+            -> list of list of zonotopic sets in order of subsystems, disturbance[subsystem][t]
+        admissible_x;
+            -> True: uses decomposition to decompose by subsystems. NOTE that it need Drake.
+            -> list of list of zonotopic sets in order of subsystems, admissible_x[subsystem][t]
+        admissible_u
+            -> True: uses decomposition to decompose by subsystems. NOTE that it need Drake.
+            -> list of list of zonotopic sets in order of subsystems, admissible_u[subsystem][t]
+    Outputs:
+        sys; list of LTV subsystems
+    NOTE: 
+    * The result sys[i].A_ij and sys[i].B_ij are LIST of DICTIONARIES, where in the index of the list is the time step. Also the keys of the dictionary is the index of the neighbouring subsystem
+        where in case they are not neighbour, there is no key for that specific subsystem.
+    * the length of all the lists would be equal to horizon, which means that final admissible state set is not considered and need be added manually: X[horizon+1]
+        did this so that someone can add a goal set to a LTV system.
+    * if you want to set disturbance, admissble_x, admissible_u yourself, you need to set it like: [[W_i for j in range(number_of_subsystems)] for t in range(horizon)]
+    * For now, you have to set all above three yourself.
+    """
+
+    horizon = len( system.A )
+    number_of_subsys = len(partition_A)
+
+    sub_sys = []
+    for t in range(horizon):
+        system_t=parsi.Linear_system( system.A[t], system.B[t], W=system.W[t], X=system.X[t], U=system.U[t] )
+
+        sub_sys.append( 
+            parsi.sub_systems(
+                system_t,
+                partition_A=partition_A,
+                partition_B=partition_B,
+                disturbance=disturbance[t], 
+                admissible_x=admissible_x[t] , 
+                admissible_u=admissible_u[t]
+            )
+        )
+
+    sys=[ parsi.Linear_system(
+        [ sub_sys[t][i].A for t in range(horizon)] ,
+        [ sub_sys[t][i].B for t in range(horizon)] ,
+        [ sub_sys[t][i].W for t in range(horizon)] ,
+        [ sub_sys[t][i].X for t in range(horizon)] ,
+        [ sub_sys[t][i].U for t in range(horizon)] 
+    ) for i in range(number_of_subsys)]
+
+    # sys[i].A_ij and sys[i].B_ij is a list of dictionaries at different time steps
+    # for example: sys[i].A_ij = [ {0:A_i0(0), 1:A_i1(0), 3:A_i3(0) } , {1:A_i1(1), 2:A_i2(1)} , {3:A_i3(2)} , {} ]
+    for i in range(number_of_subsys):
+        sys[i].A_ij=[]
+        sys[i].B_ij=[]
+
+        for t in range(horizon):
+            sys[i].A_ij.append( sub_sys[t][i].A_ij )
+            sys[i].B_ij.append( sub_sys[t][i].B_ij )
+
+    return sys
+    
+
 def decentralized_rci_centralized_synthesis(list_system,size='min',order_max=30):
     """
     This function return a set of decentralized rci sets and their action sets. It computes everything in a centralized fashion using AGC
@@ -224,8 +290,6 @@ def decentralized_rci_centralized_synthesis(list_system,size='min',order_max=30)
     number_of_subsys=len(list_system)
     n=[len(list_system[i].A) for i in range(number_of_subsys)]
     m=[list_system[i].B.shape[1] for i in range(number_of_subsys)]
-
-    parsi.Monitor['time_centralized_decentralized'] = []
 
     for order in np.arange(1, order_max, 1/max(n)):
         
@@ -254,8 +318,6 @@ def decentralized_rci_centralized_synthesis(list_system,size='min',order_max=30)
         # Result
         model.setParam("OutputFlag",False)
         model.optimize()
-        
-        parsi.Monitor['time_centralized_decentralized'].append( model.Runtime )
         
         if model.Status!=2:
             
@@ -487,6 +549,103 @@ def shrinking_rci(list_system,reduced_order=2,order_reduction_method='pca'):
             system.omega,_ = rci(system,order_max=100,size='min',obj='include_center')
             
     return [i.omega for i in list_system]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def decentralized_viable_centralized_synthesis(list_system, size='min', order_max=30, algorithm='slow', horizon=None):
+    """
+    ??????????
+    """
+
+    number_of_subsys=len(list_system)
+    
+    if horizon is None:
+        horizon = len(list_system[0].X) - 1
+
+    n= [len(list_system[i].A[0]) for i in range(number_of_subsys)] if list_system[0].sys=='LTV' else [len(list_system[i].A) for i in range(number_of_subsys)]
+    m= [list_system[i].B[0].shape[1] for i in range(number_of_subsys)] if list_system[0].sys=='LTV' else [list_system[i].B.shape[1] for i in range(number_of_subsys)]
+
+    for order in np.arange(1, order_max, 1/max(n)):
+        
+        model= Model()
+
+        # adding the required constraints for the finite time viable set
+        var = parsi.viable_cen_synthesis_decen_controller_constraints(model, list_system, order, horizon=horizon, algorithm=algorithm )
+
+        # Objective function
+        if size == 'min' or size == 'max':
+            
+            obj = sum([ sum([ sum(var[sys]['alpha_x'][t]) for t in range(horizon)]) for sys in range(number_of_subsys)])
+            # NOTE: not sure if it works
+            if size == 'max':
+                obj = -1 * obj 
+
+        else:
+            obj = 1 
+        
+        model.setObjective( obj , GRB.MINIMIZE )
+        model.update()
+
+        # Result
+        model.setParam("OutputFlag",False)
+        model.optimize()
+        
+        if model.Status!=2:
+            
+            del model
+            continue
+
+        T_result= [ [ np.array( [ [ var[sys]['T'][t][i][j].X for j in range(len(var[sys]['T'][t][i])) ] for i in range(n[sys]) ] ) for t in range(horizon+1)] for sys in range(number_of_subsys) ]
+        T_x_result = [ [ np.array( [ var[sys]['x_bar'][t][i].X for i in range(n[sys]) ] ) for t in range(horizon+1)] for sys in range(number_of_subsys) ]
+        alfa_x = [ [ np.array( [ var[sys]['alpha_x'][t][i].X for i in range(len( var[sys]['alpha_x'][t])) ] ) for t in range(horizon)] for sys in range(number_of_subsys)]
+        omega= [ [ pp.zonotope(x=T_x_result[sys][t] , G=T_result[sys][t]) for t in range(horizon+1)] for sys in range(number_of_subsys) ] 
+
+
+        M_result= [ [ np.array( [ [ var[sys]['M'][t][i][j].X for j in range(len(var[sys]['M'][t][i])) ] for i in range(m[sys]) ] ) for t in range(horizon)] for sys in range(number_of_subsys) ]
+        M_x_result= [ [ np.array( [ var[sys]['u_bar'][t][i].X for i in range(m[sys]) ] ) for t in range(horizon)] for sys in range(number_of_subsys) ]
+        alfa_u = [ [ np.array( [ var[sys]['alpha_u'][t][i].X for i in range(len(var[sys]['alpha_u'][t])) ] ) for t in range(horizon)] for sys in range(number_of_subsys)]
+        theta= [ [ pp.zonotope(x=M_x_result[sys][t] , G=M_result[sys][t]) for t in range(horizon)] for sys in range(number_of_subsys) ] 
+        
+        for i in range(number_of_subsys):
+            list_system[i].omega=omega[i]
+            list_system[i].theta=theta[i]
+
+        return omega , theta , alfa_x , alfa_u
+    
+    print('Could not find any solution, you can increase order_max and try again.')
+    return None , None , None , None
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def compositional_synthesis( list_system , horizon , initial_order=2 , step_size=0.1 , order_max=100 , algorithm='slow' , delta_coefficient = 5 , iteration_max = 50):

@@ -70,6 +70,7 @@ for step in range(100):
 
     for i in range(number_of_subsystems):
         assert parsi.is_in_set( sub_sys[i].omega , state[i] ) == True
+        assert parsi.is_in_set( sub_sys[i].theta , u[i] ) == True
 
 # Plotting
 

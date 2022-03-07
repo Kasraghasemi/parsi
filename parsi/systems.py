@@ -117,9 +117,17 @@ class Linear_system:
         """
         It puts parameterized sets in self.param_set_X and self.param_set_U
         """
-        omega , theta = self.rci( order_max=order_max)  
-        self.param_set_X = omega            
-        self.param_set_U = theta                 
+        
+        if self.sys == 'LTI':
+            omega , theta = self.rci( order_max=order_max)  
+            self.param_set_X = omega            
+            self.param_set_U = theta 
+
+        elif self.sys == 'LTV':
+            import parsi
+            omega , theta = parsi.viable_limited_time( self,horizon = None ,order_max=10,obj=True,algorithm='slow')
+            self.param_set_X = omega            
+            self.param_set_U = theta   
 
     def mapping_alpha_to_feasible_set(self):
         """

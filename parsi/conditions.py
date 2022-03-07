@@ -18,6 +18,7 @@ except:
     print('Error: parsi package is not installed correctly') 
 from copy import deepcopy
 
+
 def rci_constraints(model, system, T_order, general_version=True , include_hard_connstraints= True):
     """
     This function adds necessary constraints for RCI (robust control invariant) set for a LTI.
@@ -144,7 +145,7 @@ def viable_constraints(model, system, T_order, horizon=None, algorithm='slow'):
             W = [system.W for i in range(number_of_steps)]
             A = [system.A for i in range(number_of_steps)]
             B = [system.B for i in range(number_of_steps)]
-            X = [system.X for i in range(number_of_steps+1)]
+            X = [system.X for i in range(number_of_steps+1)]        # TODO: we can change it to number_of_steps and append it with a goal set
             U = [system.U for i in range(number_of_steps)]
 
     elif system.sys == 'LTV':
@@ -155,7 +156,7 @@ def viable_constraints(model, system, T_order, horizon=None, algorithm='slow'):
         W = [system.W[i] for i in range(number_of_steps)]
         A = [system.A[i] for i in range(number_of_steps)]
         B = [system.B[i] for i in range(number_of_steps)]
-        X = [system.X[i] for i in range(number_of_steps+1)]
+        X = [system.X[i] for i in range(number_of_steps+1)]         # TODO: we can change it to number_of_steps and append it with a goal set
         U = [system.U[i] for i in range(number_of_steps)]
     
     k = int( round(n*T_order) )
@@ -531,76 +532,176 @@ def potential_function_rci(list_system, system_index, T_order, reduced_order=1, 
     return potential_output
 
 
-# def centralized_viable_sets_mpc_conditions(model,horizon,list_system,T_order=3,algorithm='slow'):
-#     """
-#     This function adds the necessary constrainnts for viable set of an LTI system. It is written in Gurobi, directly.
-#     Inputs: 
-#         (1) model, needs to be a Gurobi model
-#         (2) horizon, which is the horizon, or in other words, number of viable sets
-#         (3) list_system, which is a set of systems. Note that each system.state needs to be initialized before calling this function.
-#         (4) T_order, which lead to number of columns of T (viable sets generator)
-#         (5) algoritm, it is either 'slow' or 'fast', which specifies the right hand side of the viable set constraint. [T] for 'slow' and [0,T] for 'fast'
-#     Outputs:
-#         T_x,T,M_x,M which specify the viables sets and action sets in zonotope for all systems.
-#     """
-#     assert( all([i.sys=='LTI' for i in list_system])), "all systems have to be LTI (linear time invariant)"
-#     from itertools import accumulate
-#     sys_number = len(list_system)
-#     n = [i.A.shape[0] for i in list_system]               # Matrix A is n*n
-#     m = [i.B.shape[1] for i in list_system]               # Matrix B is n*m
-#     k = [round(n[i]*T_order) for i in range(sys_number)]
-#     dist_G_numberofcolumns = [i.W.G.shape[1] for i in list_system]
-#     if algorithm=='slow':
-#         [i.insert(0,k) for i in dist_G_numberofcolumns]
-#         p = [list(accumulate(dist_G_numberofcolumns[i])) for i in range(sys_number)]              # p[i] shows the number of columns for T[i], when algorithm='slow'
+def viable_cen_synthesis_decen_controller_constraints(model, list_system, T_order, horizon=None, algorithm='slow'):
+    """
+    ?????????????
+
+
+    This function adds the necessary constrainnts for viable set of an LTI system. It is written in Gurobi, directly.
+    Inputs: 
+        (1) model, needs to be a Gurobi model
+        (2) horizon, which is the horizon, or in other words, number of viable sets
+        (3) list_system, which is a set of systems. Note that each system.state needs to be initialized before calling this function.
+        (4) T_order, which lead to number of columns of T (viable sets generator)
+        (5) algoritm, it is either 'slow' or 'fast', which specifies the right hand side of the viable set constraint. [T] for 'slow' and [0,T] for 'fast'
+    Outputs:
+        T_x,T,M_x,M which specify the viables sets and action sets in zonotope for all systems.
+    """
+
+
+
+    sys_number = len(list_system)
+
+    if horizon is None:
+        horizon = len(list_system[0].X) - 1
+
+    for sys in range(sys_number):
+
+        # Setting the paamterized sets for each subsystem
+        # does not matter if the system is LTI or LTV
+        # the baseline set even for the LTV system, would be the rci set for the first time step system
+        # NOTE: T order is increasing by steps (algorithm is assigned to slow right now)
+        list_system[sys].parameterized_set_initialization()
+
+        if list_system[sys].sys == 'LTI':
+            rci_set = deepcopy(list_system[sys].param_set_X)
+            action_set = deepcopy(list_system[sys].param_set_U)
+
+            list_system[sys].param_set_X = [ rci_set ] * horizon
+            list_system[sys].param_set_U = [action_set] * horizon
+
+        # Defining the parameters
+        # parameters are defined for length of horizon. there is no need to define parametric set on state space for t = horizon
+        dim_alpha_x = [ list_system[sys].param_set_X[steps].G.shape[1] for steps in range(horizon) ]
+        dim_alpha_u = [ list_system[sys].param_set_U[steps].G.shape[1] for steps in range(horizon) ]
+
+        list_system[sys].alpha_x = [ np.array([model.addVar(lb= 0, ub= GRB.INFINITY) for _ in range(dim_alpha_x[steps])]) for steps in range(horizon) ]
+        list_system[sys].alpha_u = [ np.array([model.addVar(lb= 0, ub= GRB.INFINITY) for _ in range(dim_alpha_u[steps])]) for steps in range(horizon) ]
     
-#     #Defining Variables
+    model.update()
 
-#     # T is the generator for the viable set. Note that the first step does not have a generator since it is just a given point.
-#     T= [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(p[sys])] for j in range(n[sys])] ) for steps in range(horizon)] for sys in range(sys_number)] if algorithm=='slow' \
-#         else [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(n[sys])] ) for steps in range(horizon)] for sys in range(sys_number)]
+    # breaking the coupling among subsystems
+    disturb = parsi.break_subsystems(list_system)
     
-#     # M is the generator for the action set. Note that the first and last step does not have generators since the first step is supposed to have a vector of controller and the last one does not need one.
-#     M= [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(m[sys])] ) for steps in range(horizon-1)] for sys in range(sys_number)] if algorithm=='slow' \
-#         else [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(m[sys])] ) for steps in range(horizon-1)] for sys in range(sys_number)]
+    real_disturbance_sets = [ deepcopy(sys.W) for sys in list_system ] 
 
-#     xbar=[ [np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(n[sys])]) for steps in range(horizon)] for sys in range(sys_number)]
-#     ubar=[ [np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(m[sys])]) for steps in range(horizon-1)] for sys in range(sys_number)]
+    for sys in range(sys_number):
+        list_system[sys].W = disturb[sys]
+
+    # adding viable constraints; Satisfiability and Validity
+    # NOTE: before calling viable_constraints(), list_system[i].X[horizon+1] MUST be filled with a zonotpic set.
+    var = [ viable_constraints(model, list_system[sys], T_order, horizon=None, algorithm=algorithm) for sys in range(sys_number)]
+
+    # adding Correctness constraints
+    alpha_u=[ [ pp.zonotope_subset(model, pp.zonotope(x=np.array(var[sys]['u_bar'][t]).T,G= var[sys]['M'][t]) , list_system[sys].param_set_U[t] ,alpha='vector',solver='gurobi')[2] for sys in range(sys_number)] for t in range(horizon) ]
+    [ [ model.addConstrs(( alpha_u[t][sys][i] == list_system[sys].alpha_u[t][i] for i in range(len(alpha_u[t][sys])) ) ) for t in range(horizon) ] for sys in range(sys_number)] #THIS MIGHT BE CONSTARINT I NEED O FINC THE DUAL
+
+    alpha_x=[ [ pp.zonotope_subset(model, pp.zonotope(x=np.array(var[sys]['x_bar'][t]).T,G=var[sys]['T'][t]) , list_system[sys].param_set_X[t] ,alpha='vector',solver='gurobi' )[2] for sys in range(sys_number)] for t in range(horizon) ]
+    [ [ model.addConstrs(( alpha_x[t][sys][i] == list_system[sys].alpha_x[t][i] for i in range(len(alpha_x[t][sys])) ) ) for t in range(horizon) ]  for sys in range(sys_number)] #THIS MIGHT BE CONSTARINT I NEED O FINC THE DUAL
+
+    model.update()
+
+    for sys in range(sys_number):
+        # By not choosing list_system[sys].alpha_x and list_system[sys].alpha_u, I am isolating the defined parameters
+        var[sys]['alpha_x'] = [ alpha_x[t][sys] for t in range(horizon) ]
+        var[sys]['alpha_u'] = [ alpha_u[t][sys] for t in range(horizon) ]
+
+    # returning the disturbance sets to their original value for all subsystems
+    for sys in range(sys_number):
+        list_system[sys].W = real_disturbance_sets[sys]
     
-#     for sys in range(sys_number):
-#         # Adding hard constraints over state and control input spaces
-#         if list_system[sys].U != None:
-#             pp.zonotope_subset(model, pp.zonotope(x=np.array(ubar[sys]).T,G= M[sys]) , list_system[sys].U ,solver='gurobi')
-#         if list_system[sys].X != None:
-#             pp.zonotope_subset(model, pp.zonotope(x=np.array(xbar[sys]).T,G=T[sys]) , list_system[sys].X ,solver='gurobi' )
+    return var
 
 
-
-
-
-#     #Defining Constraints
-#     left_side = [np.concatenate( (np.dot(system.A[i],T[i])+np.dot(system.B[i],M[i]) , system.W[i].G) ,axis=1) for i in range(number_of_steps-1)]               #[AT+BM,W]
-#     right_side = T[1:] if algorithm=='slow' else [np.concatenate( ( np.zeros((n,dist_G_numberofcolumns[i-1])) ,T[i] ),axis=1) for i in range(1,number_of_steps)]             #[T] if algorithm=='slow' , [0,T] if algorithm=='fast'
-#     [program.AddLinearConstraint(np.equal(left_side[i],right_side[i],dtype='object').flatten()) for i in range(number_of_steps-1)]             #[A(t)T(t)+B(t)M(t),W(t)]==[T(t+1)]
-
-#     #Implementing Hard Constraints over control input and state space
-#     if system.X!=None:
-#         [pp.zonotope_subset(program, pp.zonotope(G=T[i],x=T_x[i]) , system.X ) for i in range(number_of_steps)]
-#     if system.U!=None:
-#         [pp.zonotope_subset(program, pp.zonotope(G=M[i],x=M_x[i]) , system.U ) for i in range(number_of_steps-1)]
+    # assert( all([i.sys=='LTI' for i in list_system])), "all systems have to be LTI (linear time invariant)"
+    # from itertools import accumulate
+    # sys_number = len(list_system)
+    # n = [i.A.shape[0] for i in list_system]               # Matrix A is n*n
+    # m = [i.B.shape[1] for i in list_system]               # Matrix B is n*m
+    # k = [round(n[i]*T_order) for i in range(sys_number)]
+    # dist_G_numberofcolumns = [i.W.G.shape[1] for i in list_system]
+    # if algorithm=='slow':
+    #     [i.insert(0,k) for i in dist_G_numberofcolumns]
+    #     p = [list(accumulate(dist_G_numberofcolumns[i])) for i in range(sys_number)]              # p[i] shows the number of columns for T[i], when algorithm='slow'
     
-#     #Constraints for the centers
-#     center=[np.equal( np.dot(system.A[i] , T_x[i]) + np.dot(system.B[i] , M_x[i]) + system.W[i].x , T_x[i+1] ,dtype='object').flatten() for i in range(number_of_steps-1)]
-#     [program.AddLinearConstraint(center[i]) for i in range(number_of_steps-1)]              #A*x_bar+ B*u_bar +w_bar==x_bar       #IT WILL MAKE PROBLEM WHEN IT BECOMES TRUE!
+    # #Defining Variables
 
-#     output={
-#         'T':T,
-#         'T_x': T_x,
-#         'M':M,
-#         'M_x': M_x
-#     }    
+    # # T is the generator for the viable set. Note that the first step does not have a generator since it is just a given point.
+    # T= [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(p[sys])] for j in range(n[sys])] ) for steps in range(horizon)] for sys in range(sys_number)] if algorithm=='slow' \
+    #     else [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(n[sys])] ) for steps in range(horizon)] for sys in range(sys_number)]
+    
+    # # M is the generator for the action set. Note that the first and last step does not have generators since the first step is supposed to have a vector of controller and the last one does not need one.
+    # M= [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(m[sys])] ) for steps in range(horizon-1)] for sys in range(sys_number)] if algorithm=='slow' \
+    #     else [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(m[sys])] ) for steps in range(horizon-1)] for sys in range(sys_number)]
 
-#     return output
+    # xbar=[ [np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(n[sys])]) for steps in range(horizon)] for sys in range(sys_number)]
+    # ubar=[ [np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(m[sys])]) for steps in range(horizon-1)] for sys in range(sys_number)]
+    
+    # for sys in range(sys_number):
+    #     # Adding hard constraints over state and control input spaces
+    #     if list_system[sys].U != None:
+    #         pp.zonotope_subset(model, pp.zonotope(x=np.array(ubar[sys]).T,G= M[sys]) , list_system[sys].U ,solver='gurobi')
+    #     if list_system[sys].X != None:
+    #         pp.zonotope_subset(model, pp.zonotope(x=np.array(xbar[sys]).T,G=T[sys]) , list_system[sys].X ,solver='gurobi' )
+
+
+
+
+
+    # #Defining Constraints
+    # left_side = [np.concatenate( (np.dot(system.A[i],T[i])+np.dot(system.B[i],M[i]) , system.W[i].G) ,axis=1) for i in range(number_of_steps-1)]               #[AT+BM,W]
+    # right_side = T[1:] if algorithm=='slow' else [np.concatenate( ( np.zeros((n,dist_G_numberofcolumns[i-1])) ,T[i] ),axis=1) for i in range(1,number_of_steps)]             #[T] if algorithm=='slow' , [0,T] if algorithm=='fast'
+    # [program.AddLinearConstraint(np.equal(left_side[i],right_side[i],dtype='object').flatten()) for i in range(number_of_steps-1)]             #[A(t)T(t)+B(t)M(t),W(t)]==[T(t+1)]
+
+    # #Implementing Hard Constraints over control input and state space
+    # if system.X!=None:
+    #     [pp.zonotope_subset(program, pp.zonotope(G=T[i],x=T_x[i]) , system.X ) for i in range(number_of_steps)]
+    # if system.U!=None:
+    #     [pp.zonotope_subset(program, pp.zonotope(G=M[i],x=M_x[i]) , system.U ) for i in range(number_of_steps-1)]
+    
+    # #Constraints for the centers
+    # center=[np.equal( np.dot(system.A[i] , T_x[i]) + np.dot(system.B[i] , M_x[i]) + system.W[i].x , T_x[i+1] ,dtype='object').flatten() for i in range(number_of_steps-1)]
+    # [program.AddLinearConstraint(center[i]) for i in range(number_of_steps-1)]              #A*x_bar+ B*u_bar +w_bar==x_bar       #IT WILL MAKE PROBLEM WHEN IT BECOMES TRUE!
+
+    # output={
+    #     'T':T,
+    #     'T_x': T_x,
+    #     'M':M,
+    #     'M_x': M_x
+    # }    
+
+    # return output
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # the potential function for coupled LTI subsystems. MPC strating from a given point and ending up inside rci set.
