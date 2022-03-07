@@ -60,7 +60,7 @@ goal_set = pp.zonotope( x=[6,5], G = [[0.5,0],[0,0.5]])
 for i in range(number_of_subsystems):
     sub_sys[i].X.append(goal_set)
 
-omega , theta , _ , _ = parsi.decentralized_viable_centralized_synthesis(sub_sys, size='min', order_max=30, algorithm='slow', horizon=None)
+omega , theta , alpha_x , _  , center , _ = parsi.decentralized_viable_centralized_synthesis(sub_sys, size='min', order_max=30, algorithm='slow', horizon=None)
 
 for sys in sub_sys:
     sys.state = parsi.sample(sys.omega[0])
@@ -78,10 +78,13 @@ for step in range(horizon):
         assert parsi.is_in_set( sub_sys[i].theta[step] , u[i] ) == True
 
 
-# for sys in range(number_of_subsystems):
-#     omega_reduced_order = [ pp.pca_order_reduction( sub_sys[i].omega[step] ,desired_order=6) for step in range(1,horizon+1)]
-#     pp.visualize(omega_reduced_order)
-#     plt.show()
+for sys in range(number_of_subsystems):
+    param_sets = [ pp.pca_order_reduction( pp.zonotope( x = center[sys][step] , G = np.dot( sub_sys[sys].param_set_X[step].G, np.diag(alpha_x[sys][step]) )) ,desired_order=6) for step in range(1, horizon)]
+    for sets in param_sets:
+        sets.color = 'red'
+    omega_reduced_order = [ pp.pca_order_reduction( sub_sys[sys].omega[step] ,desired_order=6) for step in range(1,horizon+1)]
+    pp.visualize( param_sets + omega_reduced_order )
+    plt.show()
 
 
 # TODO: write now it does not work when the subsystems are LTI

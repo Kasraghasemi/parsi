@@ -534,7 +534,10 @@ def potential_function_rci(list_system, system_index, T_order, reduced_order=1, 
 
 def viable_cen_synthesis_decen_controller_constraints(model, list_system, T_order, horizon=None, algorithm='slow'):
     """
-    ?????????????
+    This function adds
+
+
+    ??????
 
 
     This function adds the necessary constrainnts for viable set of an LTI system. It is written in Gurobi, directly.
@@ -577,6 +580,17 @@ def viable_cen_synthesis_decen_controller_constraints(model, list_system, T_orde
 
         list_system[sys].alpha_x = [ np.array([model.addVar(lb= 0, ub= GRB.INFINITY) for _ in range(dim_alpha_x[steps])]) for steps in range(horizon) ]
         list_system[sys].alpha_u = [ np.array([model.addVar(lb= 0, ub= GRB.INFINITY) for _ in range(dim_alpha_u[steps])]) for steps in range(horizon) ]
+
+        n = len( list_system[sys].param_set_X[0].x)
+        m = len( list_system[sys].param_set_U[0].x)
+
+        list_system[sys].alpha_center_x = [ np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for _ in range( n )]) for steps in range(horizon) ]
+        list_system[sys].alpha_center_u = [ np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for _ in range( m )]) for steps in range(horizon) ]
+        
+        for steps in range(horizon):
+            list_system[sys].param_set_X[steps].x = list_system[sys].alpha_center_x[steps]
+            list_system[sys].param_set_U[steps].x = list_system[sys].alpha_center_u[steps]
+
     
     model.update()
 
@@ -606,92 +620,14 @@ def viable_cen_synthesis_decen_controller_constraints(model, list_system, T_orde
         var[sys]['alpha_x'] = [ alpha_x[t][sys] for t in range(horizon) ]
         var[sys]['alpha_u'] = [ alpha_u[t][sys] for t in range(horizon) ]
 
+        var[sys]['alpha_center_x'] = [ list_system[sys].alpha_center_x[t] for t in range(horizon) ]
+        var[sys]['alpha_center_u'] = [ list_system[sys].alpha_center_u[t] for t in range(horizon) ]
+
     # returning the disturbance sets to their original value for all subsystems
     for sys in range(sys_number):
         list_system[sys].W = real_disturbance_sets[sys]
     
     return var
-
-
-    # assert( all([i.sys=='LTI' for i in list_system])), "all systems have to be LTI (linear time invariant)"
-    # from itertools import accumulate
-    # sys_number = len(list_system)
-    # n = [i.A.shape[0] for i in list_system]               # Matrix A is n*n
-    # m = [i.B.shape[1] for i in list_system]               # Matrix B is n*m
-    # k = [round(n[i]*T_order) for i in range(sys_number)]
-    # dist_G_numberofcolumns = [i.W.G.shape[1] for i in list_system]
-    # if algorithm=='slow':
-    #     [i.insert(0,k) for i in dist_G_numberofcolumns]
-    #     p = [list(accumulate(dist_G_numberofcolumns[i])) for i in range(sys_number)]              # p[i] shows the number of columns for T[i], when algorithm='slow'
-    
-    # #Defining Variables
-
-    # # T is the generator for the viable set. Note that the first step does not have a generator since it is just a given point.
-    # T= [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(p[sys])] for j in range(n[sys])] ) for steps in range(horizon)] for sys in range(sys_number)] if algorithm=='slow' \
-    #     else [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(n[sys])] ) for steps in range(horizon)] for sys in range(sys_number)]
-    
-    # # M is the generator for the action set. Note that the first and last step does not have generators since the first step is supposed to have a vector of controller and the last one does not need one.
-    # M= [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(m[sys])] ) for steps in range(horizon-1)] for sys in range(sys_number)] if algorithm=='slow' \
-    #     else [ [np.array([ [model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(k[sys])] for j in range(m[sys])] ) for steps in range(horizon-1)] for sys in range(sys_number)]
-
-    # xbar=[ [np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(n[sys])]) for steps in range(horizon)] for sys in range(sys_number)]
-    # ubar=[ [np.array([model.addVar(lb= -GRB.INFINITY, ub= GRB.INFINITY) for i in range(m[sys])]) for steps in range(horizon-1)] for sys in range(sys_number)]
-    
-    # for sys in range(sys_number):
-    #     # Adding hard constraints over state and control input spaces
-    #     if list_system[sys].U != None:
-    #         pp.zonotope_subset(model, pp.zonotope(x=np.array(ubar[sys]).T,G= M[sys]) , list_system[sys].U ,solver='gurobi')
-    #     if list_system[sys].X != None:
-    #         pp.zonotope_subset(model, pp.zonotope(x=np.array(xbar[sys]).T,G=T[sys]) , list_system[sys].X ,solver='gurobi' )
-
-
-
-
-
-    # #Defining Constraints
-    # left_side = [np.concatenate( (np.dot(system.A[i],T[i])+np.dot(system.B[i],M[i]) , system.W[i].G) ,axis=1) for i in range(number_of_steps-1)]               #[AT+BM,W]
-    # right_side = T[1:] if algorithm=='slow' else [np.concatenate( ( np.zeros((n,dist_G_numberofcolumns[i-1])) ,T[i] ),axis=1) for i in range(1,number_of_steps)]             #[T] if algorithm=='slow' , [0,T] if algorithm=='fast'
-    # [program.AddLinearConstraint(np.equal(left_side[i],right_side[i],dtype='object').flatten()) for i in range(number_of_steps-1)]             #[A(t)T(t)+B(t)M(t),W(t)]==[T(t+1)]
-
-    # #Implementing Hard Constraints over control input and state space
-    # if system.X!=None:
-    #     [pp.zonotope_subset(program, pp.zonotope(G=T[i],x=T_x[i]) , system.X ) for i in range(number_of_steps)]
-    # if system.U!=None:
-    #     [pp.zonotope_subset(program, pp.zonotope(G=M[i],x=M_x[i]) , system.U ) for i in range(number_of_steps-1)]
-    
-    # #Constraints for the centers
-    # center=[np.equal( np.dot(system.A[i] , T_x[i]) + np.dot(system.B[i] , M_x[i]) + system.W[i].x , T_x[i+1] ,dtype='object').flatten() for i in range(number_of_steps-1)]
-    # [program.AddLinearConstraint(center[i]) for i in range(number_of_steps-1)]              #A*x_bar+ B*u_bar +w_bar==x_bar       #IT WILL MAKE PROBLEM WHEN IT BECOMES TRUE!
-
-    # output={
-    #     'T':T,
-    #     'T_x': T_x,
-    #     'M':M,
-    #     'M_x': M_x
-    # }    
-
-    # return output
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

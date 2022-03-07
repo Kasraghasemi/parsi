@@ -59,6 +59,8 @@ class Linear_system:
         self.param_set_U=None               # a set for parameterized set for U
         self.alpha_x=None               # The parameters for the paramterized set in state space, which is useful in compositional approach in finding decentralized rci sets
         self.alpha_u=None               # The parameters for the paramterized set in control space, which is useful in compositional approach in finding decentralized rci sets
+        self.alpha_center_x=None        # The parameters for the center of the baseline set in state space
+        self.alpha_center_u=None        # The parameters for the center of the baseline set in control space
         self.alpha_x_max=None               # allowable maximum amount of alpha_x 
         self.alpha_u_max=None               # allowable maximum amount of alpha_u
         self.x_nominal=None             # The nominal trajectory in mpc 

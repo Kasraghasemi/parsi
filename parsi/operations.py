@@ -565,9 +565,13 @@ def shrinking_rci(list_system,reduced_order=2,order_reduction_method='pca'):
 
 
 
-def decentralized_viable_centralized_synthesis(list_system, size='min', order_max=30, algorithm='slow', horizon=None):
+def decentralized_viable_centralized_synthesis(list_system, size='min', order_max=30, algorithm='slow', horizon=None ):
     """
     ??????????
+    TODO: 
+    * add the center of baseline sets to optimization variables
+    * add the initial state to the constraints
+    * add an objective function
     """
 
     number_of_subsys=len(list_system)
@@ -611,19 +615,21 @@ def decentralized_viable_centralized_synthesis(list_system, size='min', order_ma
         T_result= [ [ np.array( [ [ var[sys]['T'][t][i][j].X for j in range(len(var[sys]['T'][t][i])) ] for i in range(n[sys]) ] ) for t in range(horizon+1)] for sys in range(number_of_subsys) ]
         T_x_result = [ [ np.array( [ var[sys]['x_bar'][t][i].X for i in range(n[sys]) ] ) for t in range(horizon+1)] for sys in range(number_of_subsys) ]
         alfa_x = [ [ np.array( [ var[sys]['alpha_x'][t][i].X for i in range(len( var[sys]['alpha_x'][t])) ] ) for t in range(horizon)] for sys in range(number_of_subsys)]
+        alpha_center_x = [ [ np.array( [ var[sys]['alpha_center_x'][t][i].X for i in range(n[sys]) ] ) for t in range(horizon) ] for sys in range(number_of_subsys)]
         omega= [ [ pp.zonotope(x=T_x_result[sys][t] , G=T_result[sys][t]) for t in range(horizon+1)] for sys in range(number_of_subsys) ] 
 
 
         M_result= [ [ np.array( [ [ var[sys]['M'][t][i][j].X for j in range(len(var[sys]['M'][t][i])) ] for i in range(m[sys]) ] ) for t in range(horizon)] for sys in range(number_of_subsys) ]
         M_x_result= [ [ np.array( [ var[sys]['u_bar'][t][i].X for i in range(m[sys]) ] ) for t in range(horizon)] for sys in range(number_of_subsys) ]
         alfa_u = [ [ np.array( [ var[sys]['alpha_u'][t][i].X for i in range(len(var[sys]['alpha_u'][t])) ] ) for t in range(horizon)] for sys in range(number_of_subsys)]
+        alpha_center_u = [ [ np.array( [ var[sys]['alpha_center_u'][t][i].X for i in range(m[sys]) ] ) for t in range(horizon) ] for sys in range(number_of_subsys)]
         theta= [ [ pp.zonotope(x=M_x_result[sys][t] , G=M_result[sys][t]) for t in range(horizon)] for sys in range(number_of_subsys) ] 
         
         for i in range(number_of_subsys):
             list_system[i].omega=omega[i]
             list_system[i].theta=theta[i]
 
-        return omega , theta , alfa_x , alfa_u
+        return omega , theta , alfa_x , alfa_u , alpha_center_x , alpha_center_u
     
     print('Could not find any solution, you can increase order_max and try again.')
     return None , None , None , None
