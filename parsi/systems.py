@@ -67,6 +67,7 @@ class Linear_system:
         self.u_nominal=None             # The nominal control input in mpc
         self.viable=None                # The sequence of viable sets for mpc
         self.action=None                # The sequence of action sets for mpc
+        self.initial_state=None         # it is the initial state used for finite time viable sets
 
 
     def __repr__(self):

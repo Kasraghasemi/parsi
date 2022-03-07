@@ -14,10 +14,12 @@ except:
     raise ModuleNotFoundError("parsi package is not installed properly")
 
 
-landa = 0.0001
-number_of_subsystems = 3
-horizon = 10
 
+number_of_subsystems = 3
+horizon = 30
+
+landa = 0.0001
+controller_magnitude = 0.5
 n=2*number_of_subsystems
 m=1*number_of_subsystems
 
@@ -31,7 +33,7 @@ A_ltv = [A]* horizon
 B_ltv = [B]* horizon
 
 X_i=pp.zonotope(G=np.eye(2)*10,x=np.zeros(2),color='red')
-U_i=pp.zonotope(G=np.eye(1),x=np.zeros(1))
+U_i=pp.zonotope(G=np.eye(1)*controller_magnitude,x=np.zeros(1))
 W_i=pp.zonotope(G=np.eye(2)*0.1,x=np.zeros(2))
 
 W=W_i
@@ -39,7 +41,7 @@ for _ in range(number_of_subsystems-1):
     W=W**W_i
 
 X = pp.zonotope(G=np.eye(n)*10,x=np.zeros(n),color='red')
-U = pp.zonotope(G=np.eye(m),x=np.zeros(m))
+U = pp.zonotope(G=np.eye(m)*controller_magnitude,x=np.zeros(m))
 
 W_ltv = [ W ] * horizon
 X_ltv = [ X ] * horizon
@@ -56,9 +58,13 @@ sub_sys=parsi.sub_systems_LTV(
     admissible_u=[ [U_i for j in range(number_of_subsystems)] for t in range(horizon)]
 )
 
-goal_set = pp.zonotope( x=[6,5], G = [[0.5,0],[0,0.5]])
+
+# GOAL SET
+goal_set = pp.zonotope( x=[7,4], G = [[1,0],[0,1]])
+# INITIAL STATE
 for i in range(number_of_subsystems):
     sub_sys[i].X.append(goal_set)
+    sub_sys[i].initial_state = np.array([1,-1])
 
 omega , theta , alpha_x , _  , center , _ = parsi.decentralized_viable_centralized_synthesis(sub_sys, size='min', order_max=30, algorithm='slow', horizon=None)
 

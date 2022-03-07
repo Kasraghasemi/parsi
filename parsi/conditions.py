@@ -112,7 +112,7 @@ def rci_constraints(model, system, T_order, general_version=True , include_hard_
     return output
 
 
-def viable_constraints(model, system, T_order, horizon=None, algorithm='slow'):
+def viable_constraints(model, system, T_order, horizon=None, algorithm='slow', initial_state=True):
     """
     It adds time limited viable set constraints.
     Inputs:
@@ -196,6 +196,15 @@ def viable_constraints(model, system, T_order, horizon=None, algorithm='slow'):
     #Implementing Hard Constraints over control input and state space
     [pp.zonotope_subset(model, pp.zonotope(G=T[step],x=x_bar[step]) , X[step] ,solver='gurobi') for step in range(number_of_steps+1) ]
     [pp.zonotope_subset(model, pp.zonotope(G=M[step],x=u_bar[step]) , U[step] ,solver='gurobi') for step in range(number_of_steps) ]
+    
+    #imposing the initial state
+    if initial_state == True:
+        # if it is not loaded with a value, we select the center of the admissible state set
+        if system.initial_state is None:
+            system.initial_state = X[0].x
+
+        model.addConstrs( ( x_bar[0][i] == system.initial_state[i] for i in range(n)))
+
     model.update()
 
     output={
@@ -288,7 +297,8 @@ def rci_cen_synthesis_decen_controller_constraints(model,list_system,T_order):
     for sys in range(sys_number):
 
         # Setting the paamterized sets for each subsystem
-        list_system[sys].parameterized_set_initialization()
+        if list_system[sys].param_set_X is None or list_system[sys].param_set_U is None:
+            list_system[sys].parameterized_set_initialization()
 
         # Defining the parameters
         dim_alpha_x = list_system[sys].param_set_X.G.shape[1]
@@ -564,7 +574,10 @@ def viable_cen_synthesis_decen_controller_constraints(model, list_system, T_orde
         # does not matter if the system is LTI or LTV
         # the baseline set even for the LTV system, would be the rci set for the first time step system
         # NOTE: T order is increasing by steps (algorithm is assigned to slow right now)
-        list_system[sys].parameterized_set_initialization()
+
+        if list_system[sys].param_set_X is None or list_system[sys].param_set_U is None:
+            list_system[sys].parameterized_set_initialization()
+            print("parameterized set initialization PASSED for subsystem with index = %i"%sys )
 
         if list_system[sys].sys == 'LTI':
             rci_set = deepcopy(list_system[sys].param_set_X)

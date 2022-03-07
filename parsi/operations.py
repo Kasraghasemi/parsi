@@ -78,7 +78,7 @@ def rci(system,order_max=10, general_version=True,obj=True):
     return None , None
 
 
-def viable_limited_time(system,horizon = None ,order_max=10,obj=True,algorithm='slow'):
+def viable_limited_time(system,horizon = None ,order_max=10,obj=True,algorithm='slow', initial_state=True):
     """
     Given a system, this function returns a limited time vaibale set and its action set.
     Inputs:
@@ -103,7 +103,7 @@ def viable_limited_time(system,horizon = None ,order_max=10,obj=True,algorithm='
     for order in np.arange(1, order_max, 1/n):
 
         model = Model()
-        var=parsi.viable_constraints(model, system, order, horizon=horizon, algorithm=algorithm)
+        var=parsi.viable_constraints(model, system, order, horizon=horizon, algorithm=algorithm, initial_state= initial_state)
 
         #Defining the objective function
         #objective function for minimizing the distance between the RCI set and the set of admissible states
@@ -138,7 +138,7 @@ def viable_limited_time(system,horizon = None ,order_max=10,obj=True,algorithm='
         else:
             del model
 
-    print('Not able to find a feasible solution for the viable set. You can try again by increasing the order_max')
+    print('FAILED to find a feasible solution for the SINGLE agent VIABLE set. You can try again by increasing the order_max')
     return None , None
 
 
@@ -584,6 +584,8 @@ def decentralized_viable_centralized_synthesis(list_system, size='min', order_ma
 
     for order in np.arange(1, order_max, 1/max(n)):
         
+        print("computation for order = % s"%order + " and algorithm = %s"%algorithm)
+
         model= Model()
 
         # adding the required constraints for the finite time viable set
