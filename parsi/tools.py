@@ -83,7 +83,7 @@ def break_subsystems(list_subsystems, subsystem_index=None):
         return disturb
 
 
-    if list_subsystems[0].X is not list :
+    if not isinstance(list_subsystems[0].X, list):
         if subsystem_index is not None:
             disturbance = aug_disturbance_single_subsystem_infinite_time( subsystem_index )
             return disturbance

@@ -104,7 +104,7 @@ def viable_limited_time(system,horizon = None ,order_max=10,obj=True,algorithm='
 
         model = Model()
         var=parsi.viable_constraints(model, system, order, horizon=horizon, algorithm=algorithm, initial_state= initial_state)
-
+        
         #Defining the objective function
         #objective function for minimizing the distance between the RCI set and the set of admissible states
         if obj==True:
@@ -123,7 +123,7 @@ def viable_limited_time(system,horizon = None ,order_max=10,obj=True,algorithm='
         model.optimize() 
 
         if model.status == 2:
-
+            
             T_result = [ np.array( [ [var['T'][step][i][j].x for j in range( len(var['T'][step][0]) )] for i in range(len(var['T'][step])) ] ) for step in range(number_of_steps+1)]
             x_bar_result = [ np.array( [ var['x_bar'][step][i].x for i in range(len(var['T'][step])) ] ) for step in range(number_of_steps+1) ]
 

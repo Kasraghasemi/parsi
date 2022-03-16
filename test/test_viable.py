@@ -12,6 +12,20 @@ try:
 except:
     raise ModuleNotFoundError("parsi package is not installed properly")
 
+
+def sample_trajectory(horizon = 100):
+    for test in range(horizon):
+        sys.state = parsi.sample(omega[0])
+        path = [sys.state]
+        for step in range(number_of_steps):
+            u = parsi.find_controller(omega[step] , theta[step] , sys.state )
+            sys.simulate(u,step = step)
+
+            path.append(sys.state)
+
+            assert parsi.is_in_set(omega[step+1],sys.state)==True
+
+
 number_of_steps=5
 A=[np.array([[1+0.001*t,1],[0,1-0.001*t]]) for t in range(number_of_steps)]
 B=[np.array([[0],[1+0.002*t]]) for t in range(number_of_steps)]
@@ -22,17 +36,11 @@ U=[pp.zonotope(G=np.eye(1),x=[0]) for t in range(number_of_steps)]
 sys=parsi.Linear_system(A,B,W=W,X=X,U=U)
 
 omega,theta=parsi.viable_limited_time(sys,horizon = number_of_steps,order_max=10,algorithm='slow')
+sample_trajectory()
 
-for test in range(100):
-    sys.state = parsi.sample(omega[0])
-    path = [sys.state]
-    for step in range(number_of_steps):
-        u = parsi.find_controller(omega[step] , theta[step] , sys.state )
-        sys.simulate(u,step = step)
+omega,theta=parsi.viable_limited_time(sys,horizon = number_of_steps,order_max=10,algorithm='fast')
+sample_trajectory()
 
-        path.append(sys.state)
-
-        assert parsi.is_in_set(omega[step+1],sys.state)==True
 
 # Plotting
 

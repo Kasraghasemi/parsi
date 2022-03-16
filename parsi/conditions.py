@@ -185,9 +185,11 @@ def viable_constraints(model, system, T_order, horizon=None, algorithm='slow', i
     left_side_constraint = [ np.hstack( (np.dot( A[step] , T[step]) + np.dot( B[step] , M[step]) , W[step].G)) for step in range(number_of_steps) ]
     right_side_constraint = [T[step] for step in range(1, number_of_steps+1) ] if algorithm =='slow' \
                             else [ np.hstack(( np.zeros((n,dist_G_numberofcolumns[step-1])) , T[step] )) for step in range(1, number_of_steps+1) ]
-
+    
     for step in range(number_of_steps):
-        model.addConstrs( (left_side_constraint[step][i][j]==right_side_constraint[step][i][j] for i in range(n) for j in range(p[step+1])  ))
+        # model.addConstrs( (left_side_constraint[step][i][j]==right_side_constraint[step][i][j] for i in range(n) for j in range(p[step+1])  ))
+        model.addConstrs( (left_side_constraint[step][i][j]==right_side_constraint[step][i][j] for i in range(n) for j in range( left_side_constraint[step].shape[1] )  ))
+
 
     # A x_bar(t) + B u_bar(t) + d_bar(t) = x_bar(t+1)
     model.addConstrs( ( (np.dot(A[step] , x_bar[step]) + np.dot(B[step] , u_bar[step]) + W[step].x)[i] == x_bar[step+1][i] for i in range(n) for step in range(number_of_steps) ) )
