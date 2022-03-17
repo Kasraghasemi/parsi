@@ -126,7 +126,7 @@ for run_number in range(200):
 
 
     for step in range(horizon):    
-        print("step: %i"%step)
+        #print("step: %i"%step)
         #Finding the controller
         zeta_optimal=[]
         u = [parsi.find_controller( sub_sys[i].omega[step] , sub_sys[i].theta[step] , sub_sys[i].state) for i in range(number_of_subsystems) ]  

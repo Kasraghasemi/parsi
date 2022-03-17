@@ -551,27 +551,32 @@ def shrinking_rci(list_system,reduced_order=2,order_reduction_method='pca'):
     return [i.omega for i in list_system]
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def decentralized_viable_centralized_synthesis(list_system, size='min', order_max=30, algorithm='slow', horizon=None ):
     """
-    ??????????
+    this function computes the set of decentralized finite time viable sets and the action sets.
+    Inputs:
+        list_system; list of LTV systems
+        size; -> min , minimizes the parameters that scale the generators' of parameterized sets
+              -> max , maximizes the parameters that scale the generators' of parameterized sets. NOTE: it doesn't work now
+              -> None, there won't be any objective function
+        order_max; maximum order of the first viable set
+        algorithm; -> slow, the order of the viable sets grows by time steps
+                   -> fast, the order of the viable sets is fixed
+        horizon; -> None , the horizon would be length of the admissible sets-1. 
+        NOTE: admissible sets list MUST be appended by the goal set before calling this fucntion. 
+              So, the length of sys.X is one more than the length of any other lists, like sys.U or sys.A
+    Outputs:
+        omega; list of the viable set. omega[sys][time]
+        theta; list of the action set. theta[sys][time]
+        alfa_x; list of the parameters for the generators of the parameterized sets on state space. alfa_x[sys][time]
+        alfa_u; list of the parameters for the generators of the parameterized sets on action space. alfa_u[sys][time]
+        alpha_center_x; list of the parameters for the centers of the parameterized sets on state space. alpha_center_x[sys][time]
+        alpha_center_u; list of the parameters for the centers of the parameterized sets on action space. alpha_center_u[sys][time]
+
+        If the algorithm cannot find any solution it returns None
     TODO: 
-    * add the center of baseline sets to optimization variables
-    * add the initial state to the constraints
-    * add an objective function
+    * implement the same method to wotk for list of LTI systems. Right now, you need to convert LTI to LTV to work.
+    * add initial SET constraint. Right now, it only takes initial state POINT.
     """
 
     number_of_subsys=len(list_system)
