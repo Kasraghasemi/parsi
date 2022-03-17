@@ -14,7 +14,7 @@ except:
 
 
 def sample_trajectory(horizon = 100):
-    for test in range(horizon):
+    for _ in range(horizon):
         sys.state = parsi.sample(omega[0])
         path = [sys.state]
         for step in range(number_of_steps):
@@ -36,7 +36,7 @@ U=[pp.zonotope(G=np.eye(1),x=[0]) for t in range(number_of_steps)]
 sys=parsi.Linear_system(A,B,W=W,X=X,U=U)
 
 omega,theta=parsi.viable_limited_time(sys,horizon = number_of_steps,order_max=10,algorithm='slow')
-sample_trajectory()
+sample_trajectory(1000)
 
 omega,theta=parsi.viable_limited_time(sys,horizon = number_of_steps,order_max=10,algorithm='fast')
 sample_trajectory()

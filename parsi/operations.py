@@ -123,7 +123,7 @@ def viable_limited_time(system,horizon = None ,order_max=10,obj=True,algorithm='
         model.optimize() 
 
         if model.status == 2:
-            
+
             T_result = [ np.array( [ [var['T'][step][i][j].x for j in range( len(var['T'][step][0]) )] for i in range(len(var['T'][step])) ] ) for step in range(number_of_steps+1)]
             x_bar_result = [ np.array( [ var['x_bar'][step][i].x for i in range(len(var['T'][step])) ] ) for step in range(number_of_steps+1) ]
 
@@ -630,6 +630,11 @@ def decentralized_viable_centralized_synthesis(list_system, size='min', order_ma
         for i in range(number_of_subsys):
             list_system[i].omega=omega[i]
             list_system[i].theta=theta[i]
+
+            # replacing the parameterized set with the derived scaled parameterized set
+            # TODO: check if it is right
+            list_system[i].param_set_X = [ pp.zonotope( x= alpha_center_x[i][t] , G= np.dot( list_system[i].param_set_X[t].G, np.diag(alfa_x[i][t])) ) for t in range(horizon)]
+            list_system[i].param_set_U = [ pp.zonotope( x= alpha_center_u[i][t] , G= np.dot( list_system[i].param_set_U[t].G, np.diag(alfa_u[i][t])) ) for t in range(horizon)]
 
         return omega , theta , alfa_x , alfa_u , alpha_center_x , alpha_center_u
     

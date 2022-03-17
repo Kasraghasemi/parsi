@@ -3,7 +3,7 @@
 """
 import numpy as np
 import matplotlib.pyplot as plt
-from math import ceil
+from gurobipy import *
 try:
     import pypolycontain as pp
 except:
@@ -68,29 +68,87 @@ for i in range(number_of_subsystems):
 
 omega , theta , alpha_x , _  , center , _ = parsi.decentralized_viable_centralized_synthesis(sub_sys, size='min', order_max=30, algorithm='slow', horizon=None)
 
-for sys in sub_sys:
-    sys.state = sub_sys[i].initial_state
+
+# check the equality constraints in the viable set constraints
+for sys in range(number_of_subsystems):
+    for step in range(horizon):
+        predicated_generator = np.hstack( ( np.dot(sub_sys[sys].A[step] , sub_sys[sys].omega[step].G) + np.dot(sub_sys[sys].B[step] , sub_sys[sys].theta[step].G) ,sub_sys[sys].W[step].G ))
+        predicated_center = np.dot(sub_sys[sys].A[step] , sub_sys[sys].omega[step].x) + np.dot(sub_sys[sys].B[step] , sub_sys[sys].theta[step].x) + sub_sys[sys].W[step].x
+        for sys_neighbour in range(number_of_subsystems):
+            if sys_neighbour in sub_sys[sys].A_ij[step]:
+                predicated_generator = np.hstack(( predicated_generator,  np.dot( sub_sys[sys].A_ij[step][sys_neighbour] , sub_sys[sys_neighbour].param_set_X[step].G ) ) )
+                predicated_center = predicated_center + np.dot( sub_sys[sys].A_ij[step][sys_neighbour] , sub_sys[sys_neighbour].param_set_X[step].x )
+        next_generator = sub_sys[sys].omega[step+1].G
+        next_center = sub_sys[sys].omega[step+1].x
+        generator_offset = predicated_generator - next_generator
+        center_offset = predicated_center - next_center
 
 
-for step in range(horizon):    
-    # print("step: %i"%step)
-    #Finding the controller
-    zeta_optimal=[]
-    u = [parsi.find_controller( sub_sys[i].omega[step] , sub_sys[i].theta[step] , sub_sys[i].state) for i in range(number_of_subsystems) ]        
-    state= np.array([sub_sys[i].simulate(u[i]) for i in range(number_of_subsystems)])
-
-    for i in range(number_of_subsystems):
-        assert parsi.is_in_set( sub_sys[i].omega[step+1] , state[i] ) == True
-        assert parsi.is_in_set( sub_sys[i].theta[step] , u[i] ) == True
+        assert (np.abs(generator_offset) < 10**(-9)).any()
+        assert (np.abs(center_offset) < 10**(-9)).any()
 
 
-# for sys in range(number_of_subsystems):
-#     param_sets = [ pp.pca_order_reduction( pp.zonotope( x = center[sys][step] , G = np.dot( sub_sys[sys].param_set_X[step].G, np.diag(alpha_x[sys][step]) )) ,desired_order=6) for step in range(1, horizon)]
-#     for sets in param_sets:
-#         sets.color = 'red'
-#     omega_reduced_order = [ pp.pca_order_reduction( sub_sys[sys].omega[step] ,desired_order=6) for step in range(1,horizon+1)]
-#     pp.visualize( param_sets + omega_reduced_order )
-#     plt.show()
+# check the correctness
+for sys in range(number_of_subsystems):
+    for step in range(horizon):
+        m = Model()
+        pp.zonotope_subset(m, sub_sys[sys].omega[step] , sub_sys[sys].param_set_X[step] ,solver='gurobi' )
+        pp.zonotope_subset(m, sub_sys[sys].theta[step] , sub_sys[sys].param_set_U[step] ,solver='gurobi' )
+
+        m.setParam("OutputFlag",False)
+        m.optimize()
+
+        assert m.Status == 2
+        del m
+
+# check the validity
+for sys in range(number_of_subsystems):
+    for step in range(horizon):
+        m = Model()
+        pp.zonotope_subset(m, sub_sys[sys].omega[step] , sub_sys[sys].X[step] ,solver='gurobi' )
+        pp.zonotope_subset(m, sub_sys[sys].theta[step] , sub_sys[sys].U[step] ,solver='gurobi' )
+
+        m.setParam("OutputFlag",False)
+        m.optimize()
+
+        assert m.Status == 2
+        del m
+
+
+# running smaple trajectories
+
+for run_number in range(200):
+    print('run_number: ',run_number)
+
+    for sys in sub_sys:
+        sys.state = sub_sys[i].initial_state
+    system.state = np.array( [ sub_sys[i].initial_state for i in range(number_of_subsystems)]).reshape(-1)
+
+
+    for step in range(horizon):    
+        print("step: %i"%step)
+        #Finding the controller
+        zeta_optimal=[]
+        u = [parsi.find_controller( sub_sys[i].omega[step] , sub_sys[i].theta[step] , sub_sys[i].state) for i in range(number_of_subsystems) ]  
+
+        state = system.simulate( np.array( [u[i] for i in range(number_of_subsystems)] ).reshape(-1)  , step=step)
+
+        for sys in range(number_of_subsystems):
+            sub_sys[sys].state = state[ 2*sys : 2*sys+2 ]
+        # state= np.array([sub_sys[i].simulate(u[i],step=step) for i in range(number_of_subsystems)])
+
+        for i in range(number_of_subsystems):
+            assert parsi.is_in_set( sub_sys[i].omega[step+1] , sub_sys[i].state ) == True
+            assert parsi.is_in_set( sub_sys[i].theta[step] , u[i] ) == True
+
+
+    # for sys in range(number_of_subsystems):
+    #     param_sets = [ pp.pca_order_reduction( pp.zonotope( x = center[sys][step] , G = np.dot( sub_sys[sys].param_set_X[step].G, np.diag(alpha_x[sys][step]) )) ,desired_order=6) for step in range(1, horizon)]
+    #     for sets in param_sets:
+    #         sets.color = 'red'
+    #     omega_reduced_order = [ pp.pca_order_reduction( sub_sys[sys].omega[step] ,desired_order=6) for step in range(1,horizon+1)]
+    #     pp.visualize( param_sets + omega_reduced_order )
+    #     plt.show()
 
 
 # TODO: write now it does not work when the subsystems are LTI
