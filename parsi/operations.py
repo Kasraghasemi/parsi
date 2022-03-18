@@ -648,6 +648,122 @@ def decentralized_viable_centralized_synthesis(list_system, size='min', order_ma
 
 
 
+def compositional_synthesis_finite_time( list_system, horizon=None, algorithm='slow', initial_order=2, step_size=0.1, alpha_0='ones', order_max=100, iteration_max=100, VALUE_ZERO=10**(-6) ):
+    """
+    
+    ??????
+
+    """
+    
+    order=initial_order
+    num_sys = len(list_system)
+
+    if horizon is None:
+        horizon = len(list_system[0].X) - 1
+
+    n = [len(list_system[i].A[0]) for i in range(num_sys)] if list_system[0].sys=='LTV' else [len(list_system[i].A) for i in range(num_sys)]
+    m = [list_system[i].B[0].shape[1] for i in range(num_sys)] if list_system[0].sys=='LTV' else [list_system[i].B.shape[1] for i in range(num_sys)]
+
+    # Initilization of the parametric sets : list_system[sys].param_set_X , list_system[sys].param_set_U (both the center and the genrator), list_system[sys].alpha_x , list_system[sys].alpha_u
+    for sys in list_system:
+        sys.parameterized_set_initialization()
+
+    # assigning paramters
+    # all ones
+    if alpha_0=='ones':
+        for sys in list_system:
+            sys.alpha_x= [ np.ones(sys.param_set_X[step].G.shape[1]) for step in range(horizon)]
+            sys.alpha_u= [ np.ones(sys.param_set_U[step].G.shape[1]) for step in range(horizon)]
+    # random
+    elif alpha_0=='random':
+        for sys in list_system:
+            sys.alpha_x= [ np.random.rand(sys.param_set_X[step].G.shape[1]) for step in range(horizon)]
+            sys.alpha_u= [ np.random.rand(sys.param_set_U[step].G.shape[1]) for step in range(horizon)]
+           
+    objective_function=1
+    objective_function_previous=2
+    iteration=0
+
+    while objective_function>0 or order==order_max:
+
+        # finding all componenets of the potential function
+        subsystems_output = [ parsi.potential_function_synthesis(list_system, system_index, order, reduced_order=1, include_validity=True, horizon=horizon, algorithm=algorithm) for system_index in range(num_sys) ]
+     
+        objective_function_previous=objective_function
+
+        # computing the potential function
+        objective_function = sum([subsystems_output[i]['obj'] for i in range(num_sys) ])
+
+        print('potential function : ',objective_function)
+
+        # if the potential funciton is smaller than VALUE_ZERO, the solution is found
+        if objective_function <= VALUE_ZERO:
+            for sys in range(len(list_system)):
+                list_system[sys].omega= [ pp.zonotope(G=subsystems_output[sys]['T'][step],x=subsystems_output[sys]['x_bar'][step]) for step in range(horizon+1)]
+                list_system[sys].theta= [ pp.zonotope(G=subsystems_output[sys]['M'][step],x=subsystems_output[sys]['u_bar'][step]) for step in range(horizon)]
+
+            return [sys.omega for sys in list_system],[sys.theta for sys in list_system]
+
+        else:
+            for i in range(num_sys):
+                for step in range(horizon):
+
+                    # finding gradients and adding all the gradient for find the best direction
+                    grad_x= np.array(sum([subsystems_output[j]['alpha_x_grad'][step][i] for j in range(num_sys)]))
+                    grad_u= np.array(sum([subsystems_output[j]['alpha_u_grad'][step][i] for j in range(num_sys)]))
+
+                    grad_center_x = np.array(sum([subsystems_output[j]['center_x_param_grad'][step][i] for j in range(num_sys)]))
+                    grad_center_u = np.array(sum([subsystems_output[j]['center_u_param_grad'][step][i] for j in range(num_sys)]))
+
+                    # gradient descent
+
+                    # NOTE: I am not normalizing the gradients because it prevent convergence when some of the parameters are assigned to zero after they go below zero
+                    # non-normalized gradient descent 
+                    list_system[i].alpha_x[step] = list_system[i].alpha_x[step] - step_size * grad_x
+                    list_system[i].alpha_u[step] = list_system[i].alpha_u[step] - step_size * grad_u
+
+                    # gradient descent may cause the parameters to go below zero, which must not happen because the parameters have zero as their lower bound
+                    # so those elements that go below zero after updating are replaced with zero
+
+                    list_system[i].alpha_x[step][ list_system[i].alpha_x[step] < 0 ] = 0
+                    list_system[i].alpha_u[step][ list_system[i].alpha_u[step] < 0 ] = 0
+
+                    # gradient descent for the centers of the parametric sets
+
+                    list_system[i].param_set_X[step].x = list_system[i].param_set_X[step].x - step_size * grad_center_x
+                    list_system[i].param_set_U[step].x = list_system[i].param_set_U[step].x - step_size * grad_center_u
+                    
+
+        # if the potential funciton is increased compared to its previous value more than a threshold, it can be because the order of the sets is small
+        if objective_function > ((objective_function_previous) + 10**(-2)):
+            order = order + 1
+
+        # if the potential funciton is not changing that mucg, it can because of a small step size
+        elif abs(objective_function - objective_function_previous)< 10**(-3):
+
+            step_size=step_size+0.1
+            
+            if iteration == iteration_max:
+                order = order + 1
+                iteration = 0
+
+        iteration += 1
+
+    return objective_function
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
